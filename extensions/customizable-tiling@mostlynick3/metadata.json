@@ -1,0 +1,8 @@
+{
+    "uuid": "customizable-tiling@mostlynick3",
+    "name": "Customizable Tiling",
+    "description": "Edge snapping and window tiling with configurable zone width. This is an extension-based replacement for the built-in Cinnamon Window Tiling app.",
+    "url": "https://github.com/mostlynick3/customizable-tiling",
+    "cinnamon-version": ["6.2", "6.4"],
+    "version": "1.0"
+}

@@ -1,0 +1,54 @@
+{
+    "snap-zone-width": {
+        "type": "spinbutton",
+        "default": 30,
+        "min": 5,
+        "max": 100,
+        "step": 5,
+        "units": "pixels",
+        "description": "Snap zone width",
+        "tooltip": "Width of the edge zone that triggers window snapping (in pixels)"
+    },
+    "preview-color": {
+        "type": "colorchooser",
+        "default": "rgba(0, 150, 255, 0.8)",
+        "description": "Preview border color",
+        "tooltip": "Color of the snap preview border"
+    },
+    "preview-fill": {
+        "type": "colorchooser",
+        "default": "rgba(0, 150, 255, 0.2)",
+        "description": "Preview fill color",
+        "tooltip": "Color of the snap preview background"
+    },
+    "grid-columns": {
+        "type": "spinbutton",
+        "default": 2,
+        "min": 1,
+        "max": 6,
+        "step": 1,
+        "description": "Grid columns",
+        "tooltip": "Number of columns in the snap grid"
+    },
+    "grid-rows": {
+        "type": "spinbutton",
+        "default": 2,
+        "min": 1,
+        "max": 6,
+        "step": 1,
+        "description": "Grid rows",
+        "tooltip": "Number of rows in the snap grid"
+    },
+    "intelligent-spacing": {
+        "type": "checkbox",
+        "default": true,
+        "description": "Intelligent spacing",
+        "tooltip": "Automatically detect and fill space next to existing windows"
+    },
+    "virtual-corners": {
+        "type": "checkbox",
+        "default": true,
+        "description": "Virtual snap corners",
+        "tooltip": "Enable snapping to grid intersections (virtual corners)"
+    }
+}
