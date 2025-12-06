@@ -1,0 +1,8 @@
+{
+    "uuid": "menu-nearest-panel@mostlynick3",
+    "name": "Open Menu From Nearest Panel",
+    "description": "Opens the start menu from the panel closest to the pointer",
+    "version": "1.0",
+    "url": "local",
+    "cinnamon-version": ["6.4"]
+}

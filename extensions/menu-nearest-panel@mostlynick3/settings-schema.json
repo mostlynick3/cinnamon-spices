@@ -1,0 +1,7 @@
+{
+    "per-monitor": {
+        "type": "checkbox",
+        "default": true,
+        "description": "Restrict menu selection to current monitor only"
+    }
+}
