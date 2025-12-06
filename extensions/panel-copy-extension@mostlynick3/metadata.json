@@ -1,0 +1,9 @@
+{
+    "uuid": "panel-copy-extension@mostlynick3",
+    "name": "Panel Copy Extension",
+    "description": "Automatically copy panels with hotkeys and on monitor connection",
+    "version": "1.0",
+    "author": "mostlynick3",
+    "cinnamon-version": ["6.4"],
+    "url": "https://github.com/mostlynick3"
+}
