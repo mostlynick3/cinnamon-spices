@@ -1,0 +1,8 @@
+{
+    "uuid": "block-notification-popups@mostlynick3",
+    "name": "Block Cinnamon Notification Popups",
+    "description": "Blocks notification popups based on wildcard app names",
+    "version": "1.0",
+    "cinnamon-version": ["6.4"],
+    "url": "github.com/mostlynick3/block-cinnamon-notification-popups"
+}

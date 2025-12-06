@@ -1,0 +1,14 @@
+{
+    "blocked-apps": {
+        "type": "list",
+        "default": [],
+        "description": "Type app names to block (e.g., 'signal', 'discord'). Matches any notification containing this text (case-insensitive).",
+        "columns": [
+            {
+                "id": "app",
+                "title": "App Name (wildcard)",
+                "type": "string"
+            }
+        ]
+    }
+}
