@@ -22,6 +22,7 @@ let snapEnabled;
 let enableSnapTimeout;
 let snappedPairs;
 let resizeMonitorId;
+let windowDestroyIds = new Map();
 
 function init(metadata) {
     settings = new Settings.ExtensionSettings(this, metadata.uuid);
@@ -53,6 +54,10 @@ function enable() {
 
 function onGrabBegin(display, screen, window, op) {
     if (op === Meta.GrabOp.MOVING && window.window_type === Meta.WindowType.NORMAL) {
+        snappedPairs = snappedPairs.filter(pair => 
+            pair.window1 !== window && pair.window2 !== window
+        );
+        
         currentWindow = window;
         lastSnapInfo = null;
         snapEnabled = false;
@@ -318,30 +323,23 @@ function getWindowsOnMonitor(monitor) {
     let allWindows = workspace.list_windows();
     
     let stackedWindows = global.display.sort_windows_by_stacking(allWindows);
-    stackedWindows.reverse();
     
-    let processedWindows = [];
-    
-    for (let i = 0; i < stackedWindows.length; i++) {
-        let win = stackedWindows[i];
+    for (let win of stackedWindows) {
         if (win && 
             win.window_type === Meta.WindowType.NORMAL &&
             win !== currentWindow &&
             !win.minimized &&
             win.get_monitor() === monitor.index) {
             
-            if (!isWindowObstructed(win, processedWindows)) {
-                let rect = win.get_frame_rect();
-                windows.push({
-                    window: win,
-                    x: rect.x,
-                    y: rect.y,
-                    width: rect.width,
-                    height: rect.height
-                });
-            }
-            
-            processedWindows.push(win);
+            let rect = win.get_frame_rect();
+            windows.push({
+                window: win,
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                stackIndex: stackedWindows.indexOf(win)
+            });
         }
     }
     
@@ -354,59 +352,108 @@ function findIntelligentSnap(x, y, monitor) {
     
     for (let win of windows) {
         if (Math.abs(x - (win.x + win.width)) <= threshold &&
-            y >= win.y && y <= win.y + win.height) {
-            return {
-                x: win.x + win.width,
-                y: win.y,
-                width: monitor.x + monitor.width - (win.x + win.width),
-                height: win.height,
-                intelligent: true,
-                snapWindow: win.window,
-                edge: 'right'
-            };
+            y >= win.y && y <= win.y + win.height &&
+            x > win.x + win.width) {
+            if (isEdgeVisible(win, 'right', x, y, windows)) {
+                return {
+                    x: win.x + win.width,
+                    y: win.y,
+                    width: monitor.x + monitor.width - (win.x + win.width),
+                    height: win.height,
+                    intelligent: true,
+                    snapWindow: win.window,
+                    edge: 'right'
+                };
+            }
         }
         
         if (Math.abs(x - win.x) <= threshold &&
-            y >= win.y && y <= win.y + win.height) {
-            return {
-                x: monitor.x,
-                y: win.y,
-                width: win.x - monitor.x,
-                height: win.height,
-                intelligent: true,
-                snapWindow: win.window,
-                edge: 'left'
-            };
+            y >= win.y && y <= win.y + win.height &&
+            x < win.x) {
+            if (isEdgeVisible(win, 'left', x, y, windows)) {
+                return {
+                    x: monitor.x,
+                    y: win.y,
+                    width: win.x - monitor.x,
+                    height: win.height,
+                    intelligent: true,
+                    snapWindow: win.window,
+                    edge: 'left'
+                };
+            }
         }
         
         if (Math.abs(y - (win.y + win.height)) <= threshold &&
-            x >= win.x && x <= win.x + win.width) {
-            return {
-                x: win.x,
-                y: win.y + win.height,
-                width: win.width,
-                height: monitor.y + monitor.height - (win.y + win.height),
-                intelligent: true,
-                snapWindow: win.window,
-                edge: 'bottom'
-            };
+            x >= win.x && x <= win.x + win.width &&
+            y > win.y + win.height) {
+            if (isEdgeVisible(win, 'bottom', x, y, windows)) {
+                return {
+                    x: win.x,
+                    y: win.y + win.height,
+                    width: win.width,
+                    height: monitor.y + monitor.height - (win.y + win.height),
+                    intelligent: true,
+                    snapWindow: win.window,
+                    edge: 'bottom'
+                };
+            }
         }
         
         if (Math.abs(y - win.y) <= threshold &&
-            x >= win.x && x <= win.x + win.width) {
-            return {
-                x: win.x,
-                y: monitor.y,
-                width: win.width,
-                height: win.y - monitor.y,
-                intelligent: true,
-                snapWindow: win.window,
-                edge: 'top'
-            };
+            x >= win.x && x <= win.x + win.width &&
+            y < win.y) {
+            if (isEdgeVisible(win, 'top', x, y, windows)) {
+                return {
+                    x: win.x,
+                    y: monitor.y,
+                    width: win.width,
+                    height: win.y - monitor.y,
+                    intelligent: true,
+                    snapWindow: win.window,
+                    edge: 'top'
+                };
+            }
         }
     }
     
     return null;
+}
+
+function isEdgeVisible(win, edge, mouseX, mouseY, allWindows) {
+    let winStackIndex = win.stackIndex;
+    
+    for (let other of allWindows) {
+        if (other.window === win.window) continue;
+        if (other.stackIndex <= winStackIndex) continue;
+        
+        if (edge === 'right') {
+            let edgeX = win.x + win.width;
+            if (other.x <= edgeX && other.x + other.width > edgeX &&
+                mouseY >= other.y && mouseY < other.y + other.height) {
+                return false;
+            }
+        } else if (edge === 'left') {
+            let edgeX = win.x;
+            if (other.x < edgeX && other.x + other.width >= edgeX &&
+                mouseY >= other.y && mouseY < other.y + other.height) {
+                return false;
+            }
+        } else if (edge === 'bottom') {
+            let edgeY = win.y + win.height;
+            if (other.y <= edgeY && other.y + other.height > edgeY &&
+                mouseX >= other.x && mouseX < other.x + other.width) {
+                return false;
+            }
+        } else if (edge === 'top') {
+            let edgeY = win.y;
+            if (other.y < edgeY && other.y + other.height >= edgeY &&
+                mouseX >= other.x && mouseX < other.x + other.width) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
 }
 
 function getSnapInfo(x, y, monitor) {
@@ -631,6 +678,13 @@ function disable() {
     }
     
     destroyPreview(null);
+    
+    windowDestroyIds.forEach((id, window) => {
+        try {
+            window.disconnect(id);
+        } catch(e) {}
+    });
+    windowDestroyIds.clear();
     
     currentWindow = null;
     lastSnapInfo = null;
