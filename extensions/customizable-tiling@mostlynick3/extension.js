@@ -22,6 +22,8 @@ let snapEnabled;
 let enableSnapTimeout;
 let snappedPairs;
 let resizeMonitorId;
+let minSnapWidth;
+let minSnapHeight;
 let windowDestroyIds = new Map();
 
 function init(metadata) {
@@ -33,6 +35,8 @@ function init(metadata) {
     settings.bindProperty(Settings.BindingDirection.IN, "grid-rows", "gridRows", onSettingsChanged);
     settings.bindProperty(Settings.BindingDirection.IN, "intelligent-spacing", "intelligentSpacing", onSettingsChanged);
     settings.bindProperty(Settings.BindingDirection.IN, "virtual-corners", "virtualCorners", onSettingsChanged);
+    settings.bindProperty(Settings.BindingDirection.IN, "min-snap-width", "minSnapWidth", onSettingsChanged);
+    settings.bindProperty(Settings.BindingDirection.IN, "min-snap-height", "minSnapHeight", onSettingsChanged);
 }
 
 function onSettingsChanged() {
@@ -42,6 +46,8 @@ function onSettingsChanged() {
     gridRows = settings.getValue("grid-rows");
     intelligentSpacing = settings.getValue("intelligent-spacing");
     virtualCorners = settings.getValue("virtual-corners");
+    minSnapWidth = settings.getValue("min-snap-width");
+    minSnapHeight = settings.getValue("min-snap-height");
 }
 
 function enable() {
@@ -349,21 +355,27 @@ function getWindowsOnMonitor(monitor) {
 function findIntelligentSnap(x, y, monitor) {
     let threshold = settings.getValue("snap-zone-width") || 30;
     let windows = getWindowsOnMonitor(monitor);
+    let minWidth = minSnapWidth || 500;
+    let minHeight = minSnapHeight || 350;
     
     for (let win of windows) {
         if (Math.abs(x - (win.x + win.width)) <= threshold &&
             y >= win.y && y <= win.y + win.height &&
             x > win.x + win.width) {
             if (isEdgeVisible(win, 'right', x, y, windows)) {
-                return {
-                    x: win.x + win.width,
-                    y: win.y,
-                    width: monitor.x + monitor.width - (win.x + win.width),
-                    height: win.height,
-                    intelligent: true,
-                    snapWindow: win.window,
-                    edge: 'right'
-                };
+                let targetWidth = monitor.x + monitor.width - (win.x + win.width);
+                let targetHeight = win.height;
+                if (targetWidth >= minWidth && targetHeight >= minHeight) {
+                    return {
+                        x: win.x + win.width,
+                        y: win.y,
+                        width: targetWidth,
+                        height: targetHeight,
+                        intelligent: true,
+                        snapWindow: win.window,
+                        edge: 'right'
+                    };
+                }
             }
         }
         
@@ -371,15 +383,19 @@ function findIntelligentSnap(x, y, monitor) {
             y >= win.y && y <= win.y + win.height &&
             x < win.x) {
             if (isEdgeVisible(win, 'left', x, y, windows)) {
-                return {
-                    x: monitor.x,
-                    y: win.y,
-                    width: win.x - monitor.x,
-                    height: win.height,
-                    intelligent: true,
-                    snapWindow: win.window,
-                    edge: 'left'
-                };
+                let targetWidth = win.x - monitor.x;
+                let targetHeight = win.height;
+                if (targetWidth >= minWidth && targetHeight >= minHeight) {
+                    return {
+                        x: monitor.x,
+                        y: win.y,
+                        width: targetWidth,
+                        height: targetHeight,
+                        intelligent: true,
+                        snapWindow: win.window,
+                        edge: 'left'
+                    };
+                }
             }
         }
         
@@ -387,15 +403,19 @@ function findIntelligentSnap(x, y, monitor) {
             x >= win.x && x <= win.x + win.width &&
             y > win.y + win.height) {
             if (isEdgeVisible(win, 'bottom', x, y, windows)) {
-                return {
-                    x: win.x,
-                    y: win.y + win.height,
-                    width: win.width,
-                    height: monitor.y + monitor.height - (win.y + win.height),
-                    intelligent: true,
-                    snapWindow: win.window,
-                    edge: 'bottom'
-                };
+                let targetWidth = win.width;
+                let targetHeight = monitor.y + monitor.height - (win.y + win.height);
+                if (targetWidth >= minWidth && targetHeight >= minHeight) {
+                    return {
+                        x: win.x,
+                        y: win.y + win.height,
+                        width: targetWidth,
+                        height: targetHeight,
+                        intelligent: true,
+                        snapWindow: win.window,
+                        edge: 'bottom'
+                    };
+                }
             }
         }
         
@@ -403,15 +423,19 @@ function findIntelligentSnap(x, y, monitor) {
             x >= win.x && x <= win.x + win.width &&
             y < win.y) {
             if (isEdgeVisible(win, 'top', x, y, windows)) {
-                return {
-                    x: win.x,
-                    y: monitor.y,
-                    width: win.width,
-                    height: win.y - monitor.y,
-                    intelligent: true,
-                    snapWindow: win.window,
-                    edge: 'top'
-                };
+                let targetWidth = win.width;
+                let targetHeight = win.y - monitor.y;
+                if (targetWidth >= minWidth && targetHeight >= minHeight) {
+                    return {
+                        x: win.x,
+                        y: monitor.y,
+                        width: targetWidth,
+                        height: targetHeight,
+                        intelligent: true,
+                        snapWindow: win.window,
+                        edge: 'top'
+                    };
+                }
             }
         }
     }
@@ -691,3 +715,5 @@ function disable() {
     snapEnabled = false;
     snappedPairs = [];
 }
+
+

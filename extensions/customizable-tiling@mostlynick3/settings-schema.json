@@ -50,5 +50,25 @@
         "default": true,
         "description": "Virtual snap corners",
         "tooltip": "Enable snapping to grid intersections (virtual corners)"
+    },
+    "min-snap-width": {
+        "type": "spinbutton",
+        "default": 500,
+        "min": 100,
+        "max": 2000,
+        "step": 50,
+        "units": "pixels",
+        "description": "Minimum snap width",
+        "tooltip": "Minimum width for intelligent snap target (in pixels)"
+    },
+    "min-snap-height": {
+        "type": "spinbutton",
+        "default": 200,
+        "min": 100,
+        "max": 2000,
+        "step": 50,
+        "units": "pixels",
+        "description": "Minimum snap height",
+        "tooltip": "Minimum height for intelligent snap target (in pixels)"
     }
 }
