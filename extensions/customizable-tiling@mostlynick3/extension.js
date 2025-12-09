@@ -25,6 +25,7 @@ let resizeMonitorId;
 let minSnapWidth;
 let minSnapHeight;
 let windowDestroyIds = new Map();
+let isHandlingResize = false;
 
 function init(metadata) {
     settings = new Settings.ExtensionSettings(this, metadata.uuid);
@@ -112,74 +113,95 @@ function startResizeMonitor(window, op) {
 }
 
 function handlePairedResize(window, pair, op, initialRect) {
-    let newRect = window.get_frame_rect();
-    let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
-    let otherRect = otherWindow.get_frame_rect();
+    if (isHandlingResize) return;
+    isHandlingResize = true;
     
-    let effectiveEdge = pair.edge;
-    if (pair.window2 === window) {
-        if (pair.edge === 'right') effectiveEdge = 'left';
-        else if (pair.edge === 'left') effectiveEdge = 'right';
-        else if (pair.edge === 'top') effectiveEdge = 'bottom';
-        else if (pair.edge === 'bottom') effectiveEdge = 'top';
+    try {
+        let newRect = window.get_frame_rect();
+        let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
+        let otherRect = otherWindow.get_frame_rect();
+        
+        let effectiveEdge = pair.edge;
+        if (pair.window2 === window) {
+            if (pair.edge === 'right') effectiveEdge = 'left';
+            else if (pair.edge === 'left') effectiveEdge = 'right';
+            else if (pair.edge === 'top') effectiveEdge = 'bottom';
+            else if (pair.edge === 'bottom') effectiveEdge = 'top';
+        }
+        
+        if (effectiveEdge === 'right') {
+            if (op === Meta.GrabOp.RESIZING_W || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_SW) {
+                let targetEdge = newRect.x;
+                let newOtherWidth = targetEdge - otherRect.x;
+                
+                let otherOldWidth = otherRect.width;
+                otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
+                
+                let actualOtherRect = otherWindow.get_frame_rect();
+                if (actualOtherRect.width !== newOtherWidth) {
+                    let actualEdge = actualOtherRect.x + actualOtherRect.width;
+                    let widthDiff = newRect.width + (newRect.x - actualEdge);
+                    window.move_resize_frame(false, actualEdge, newRect.y, widthDiff, newRect.height);
+                    newRect = window.get_frame_rect();
+                }
+            }
+        } else if (effectiveEdge === 'left') {
+            if (op === Meta.GrabOp.RESIZING_E || op === Meta.GrabOp.RESIZING_NE || op === Meta.GrabOp.RESIZING_SE) {
+                let targetEdge = newRect.x + newRect.width;
+                let newOtherWidth = (otherRect.x + otherRect.width) - targetEdge;
+                
+                let otherOldWidth = otherRect.width;
+                otherWindow.move_resize_frame(false, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
+                
+                let actualOtherRect = otherWindow.get_frame_rect();
+                if (actualOtherRect.width !== newOtherWidth) {
+                    let actualEdge = actualOtherRect.x;
+                    let newWidth = actualEdge - newRect.x;
+                    window.move_resize_frame(false, newRect.x, newRect.y, newWidth, newRect.height);
+                    newRect = window.get_frame_rect();
+                }
+            }
+        } else if (effectiveEdge === 'bottom') {
+            if (op === Meta.GrabOp.RESIZING_N || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_NE) {
+                let targetEdge = newRect.y;
+                let newOtherHeight = targetEdge - otherRect.y;
+                
+                let otherOldHeight = otherRect.height;
+                otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
+                
+                let actualOtherRect = otherWindow.get_frame_rect();
+                if (actualOtherRect.height !== newOtherHeight) {
+                    let actualEdge = actualOtherRect.y + actualOtherRect.height;
+                    let heightDiff = newRect.height + (newRect.y - actualEdge);
+                    window.move_resize_frame(false, newRect.x, actualEdge, newRect.width, heightDiff);
+                    newRect = window.get_frame_rect();
+                }
+            }
+        } else if (effectiveEdge === 'top') {
+            if (op === Meta.GrabOp.RESIZING_S || op === Meta.GrabOp.RESIZING_SW || op === Meta.GrabOp.RESIZING_SE) {
+                let targetEdge = newRect.y + newRect.height;
+                let newOtherHeight = (otherRect.y + otherRect.height) - targetEdge;
+                
+                let otherOldHeight = otherRect.height;
+                otherWindow.move_resize_frame(false, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
+                
+                let actualOtherRect = otherWindow.get_frame_rect();
+                if (actualOtherRect.height !== newOtherHeight) {
+                    let actualEdge = actualOtherRect.y;
+                    let newHeight = actualEdge - newRect.y;
+                    window.move_resize_frame(false, newRect.x, newRect.y, newRect.width, newHeight);
+                    newRect = window.get_frame_rect();
+                }
+            }
+        }
+        
+        initialRect.x = newRect.x;
+        initialRect.y = newRect.y;
+        initialRect.width = newRect.width;
+        initialRect.height = newRect.height;
+    } finally {
+        isHandlingResize = false;
     }
-    
-    if (effectiveEdge === 'right') {
-        if (op === Meta.GrabOp.RESIZING_W || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_SW) {
-            let targetEdge = newRect.x;
-            let newOtherWidth = targetEdge - otherRect.x;
-            otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
-            
-            let actualOtherRect = otherWindow.get_frame_rect();
-            let actualEdge = actualOtherRect.x + actualOtherRect.width;
-            if (actualEdge !== targetEdge) {
-                window.move_resize_frame(false, actualEdge, newRect.y, newRect.width + (newRect.x - actualEdge), newRect.height);
-            }
-        }
-    } else if (effectiveEdge === 'left') {
-        if (op === Meta.GrabOp.RESIZING_E || op === Meta.GrabOp.RESIZING_NE || op === Meta.GrabOp.RESIZING_SE) {
-            let targetEdge = newRect.x + newRect.width;
-            let newOtherWidth = (otherRect.x + otherRect.width) - targetEdge;
-            otherWindow.move_resize_frame(false, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
-            
-            let actualOtherRect = otherWindow.get_frame_rect();
-            let actualEdge = actualOtherRect.x;
-            if (actualEdge !== targetEdge) {
-                let newWidth = actualEdge - newRect.x;
-                window.move_resize_frame(false, newRect.x, newRect.y, newWidth, newRect.height);
-            }
-        }
-    } else if (effectiveEdge === 'bottom') {
-        if (op === Meta.GrabOp.RESIZING_N || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_NE) {
-            let targetEdge = newRect.y;
-            let newOtherHeight = targetEdge - otherRect.y;
-            otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
-            
-            let actualOtherRect = otherWindow.get_frame_rect();
-            let actualEdge = actualOtherRect.y + actualOtherRect.height;
-            if (actualEdge !== targetEdge) {
-                window.move_resize_frame(false, newRect.x, actualEdge, newRect.width, newRect.height + (newRect.y - actualEdge));
-            }
-        }
-    } else if (effectiveEdge === 'top') {
-        if (op === Meta.GrabOp.RESIZING_S || op === Meta.GrabOp.RESIZING_SW || op === Meta.GrabOp.RESIZING_SE) {
-            let targetEdge = newRect.y + newRect.height;
-            let newOtherHeight = (otherRect.y + otherRect.height) - targetEdge;
-            otherWindow.move_resize_frame(false, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
-            
-            let actualOtherRect = otherWindow.get_frame_rect();
-            let actualEdge = actualOtherRect.y;
-            if (actualEdge !== targetEdge) {
-                let newHeight = actualEdge - newRect.y;
-                window.move_resize_frame(false, newRect.x, newRect.y, newRect.width, newHeight);
-            }
-        }
-    }
-    
-    initialRect.x = newRect.x;
-    initialRect.y = newRect.y;
-    initialRect.width = newRect.width;
-    initialRect.height = newRect.height;
 }
 
 function findPairForWindow(window) {
@@ -715,5 +737,3 @@ function disable() {
     snapEnabled = false;
     snappedPairs = [];
 }
-
-
