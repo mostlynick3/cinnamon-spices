@@ -436,10 +436,9 @@ function isMouseInTriggerZone(panel, x, y) {
 }
 
 function toggleAutoHide() {
+    disableAutoHide();
     if (settings.getValue("auto-hide")) {
         enableAutoHide();
-    } else {
-        disableAutoHide();
     }
 }
 
@@ -462,9 +461,7 @@ function getMonitorGeometry(panel) {
 }
 
 function enableAutoHide() {
-    if (pointerWatcher) {
-        return;
-    }
+    disableAutoHide();
     
     pointerWatcher = Mainloop.timeout_add(100, function() {
         if (isInEditMode) return true;
