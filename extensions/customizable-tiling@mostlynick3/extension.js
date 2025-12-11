@@ -22,6 +22,7 @@ let snapEnabled;
 let enableSnapTimeout;
 let snappedPairs;
 let resizeMonitorId;
+let hasHitMinSize = false;
 let minSnapWidth;
 let minSnapHeight;
 let windowDestroyIds = new Map();
@@ -70,7 +71,7 @@ function onGrabBegin(display, screen, window, op) {
         snapEnabled = false;
         windowMovedId = currentWindow.connect('position-changed', onWindowMoved);
         
-        enableSnapTimeout = Mainloop.timeout_add(500, function() {
+        enableSnapTimeout = Mainloop.timeout_add(350, function() {
             if (!currentWindow) {
                 enableSnapTimeout = null;
                 return false;
@@ -134,14 +135,17 @@ function handlePairedResize(window, pair, op, initialRect) {
                 let targetEdge = newRect.x;
                 let newOtherWidth = targetEdge - otherRect.x;
                 
-                let otherOldWidth = otherRect.width;
-                otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
+                try {
+                    otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
+                } catch(e) {}
                 
                 let actualOtherRect = otherWindow.get_frame_rect();
                 if (actualOtherRect.width !== newOtherWidth) {
                     let actualEdge = actualOtherRect.x + actualOtherRect.width;
                     let widthDiff = newRect.width + (newRect.x - actualEdge);
-                    window.move_resize_frame(false, actualEdge, newRect.y, widthDiff, newRect.height);
+                    try {
+                        window.move_resize_frame(false, actualEdge, newRect.y, widthDiff, newRect.height);
+                    } catch(e) {}
                     newRect = window.get_frame_rect();
                 }
             }
@@ -150,14 +154,17 @@ function handlePairedResize(window, pair, op, initialRect) {
                 let targetEdge = newRect.x + newRect.width;
                 let newOtherWidth = (otherRect.x + otherRect.width) - targetEdge;
                 
-                let otherOldWidth = otherRect.width;
-                otherWindow.move_resize_frame(false, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
+                try {
+                    otherWindow.move_resize_frame(false, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
+                } catch(e) {}
                 
                 let actualOtherRect = otherWindow.get_frame_rect();
                 if (actualOtherRect.width !== newOtherWidth) {
                     let actualEdge = actualOtherRect.x;
                     let newWidth = actualEdge - newRect.x;
-                    window.move_resize_frame(false, newRect.x, newRect.y, newWidth, newRect.height);
+                    try {
+                        window.move_resize_frame(false, newRect.x, newRect.y, newWidth, newRect.height);
+                    } catch(e) {}
                     newRect = window.get_frame_rect();
                 }
             }
@@ -166,14 +173,17 @@ function handlePairedResize(window, pair, op, initialRect) {
                 let targetEdge = newRect.y;
                 let newOtherHeight = targetEdge - otherRect.y;
                 
-                let otherOldHeight = otherRect.height;
-                otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
+                try {
+                    otherWindow.move_resize_frame(false, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
+                } catch(e) {}
                 
                 let actualOtherRect = otherWindow.get_frame_rect();
                 if (actualOtherRect.height !== newOtherHeight) {
                     let actualEdge = actualOtherRect.y + actualOtherRect.height;
                     let heightDiff = newRect.height + (newRect.y - actualEdge);
-                    window.move_resize_frame(false, newRect.x, actualEdge, newRect.width, heightDiff);
+                    try {
+                        window.move_resize_frame(false, newRect.x, actualEdge, newRect.width, heightDiff);
+                    } catch(e) {}
                     newRect = window.get_frame_rect();
                 }
             }
@@ -182,14 +192,17 @@ function handlePairedResize(window, pair, op, initialRect) {
                 let targetEdge = newRect.y + newRect.height;
                 let newOtherHeight = (otherRect.y + otherRect.height) - targetEdge;
                 
-                let otherOldHeight = otherRect.height;
-                otherWindow.move_resize_frame(false, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
+                try {
+                    otherWindow.move_resize_frame(false, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
+                } catch(e) {}
                 
                 let actualOtherRect = otherWindow.get_frame_rect();
                 if (actualOtherRect.height !== newOtherHeight) {
                     let actualEdge = actualOtherRect.y;
                     let newHeight = actualEdge - newRect.y;
-                    window.move_resize_frame(false, newRect.x, newRect.y, newRect.width, newHeight);
+                    try {
+                        window.move_resize_frame(false, newRect.x, newRect.y, newRect.width, newHeight);
+                    } catch(e) {}
                     newRect = window.get_frame_rect();
                 }
             }
@@ -278,6 +291,15 @@ function onGrabEnd(display, screen, window, op) {
             } catch(e) {
             }
             resizeMonitorId = null;
+        }
+        
+        let pair = findPairForWindow(window);
+        if (pair) {
+            let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
+            if (otherWindow) {
+                otherWindow.get_compositor_private().queue_redraw();
+            }
+            window.get_compositor_private().queue_redraw();
         }
     }
 }
@@ -684,6 +706,19 @@ function performSnap(window, snapInfo, monitor) {
         }
     } else {
         rect = getSnapRect(snapInfo, monitor);
+        
+        snappedPairs = snappedPairs.filter(pair => 
+            pair.window1 !== window && pair.window2 !== window
+        );
+        
+        let adjacentWindow = findAdjacentSnappedWindow(window, snapInfo, monitor);
+        if (adjacentWindow) {
+            snappedPairs.push({
+                window1: window,
+                window2: adjacentWindow.window,
+                edge: adjacentWindow.edge
+            });
+        }
     }
     
     if (rect.width === monitor.width && rect.height === monitor.height) {
@@ -693,6 +728,50 @@ function performSnap(window, snapInfo, monitor) {
     
     window.unmaximize(Meta.MaximizeFlags.BOTH);
     window.move_resize_frame(false, rect.x, rect.y, rect.width, rect.height);
+}
+
+function findAdjacentSnappedWindow(window, snapInfo, monitor) {
+    let cols = gridColumns || 2;
+    let rows = gridRows || 2;
+    
+    let workspace = global.screen.get_active_workspace();
+    let allWindows = workspace.list_windows();
+    
+    let rect = getSnapRect(snapInfo, monitor);
+    let tolerance = 5;
+    
+    for (let win of allWindows) {
+        if (win === window || 
+            win.window_type !== Meta.WindowType.NORMAL ||
+            win.minimized ||
+            win.get_monitor() !== monitor.index) {
+            continue;
+        }
+        
+        let winRect = win.get_frame_rect();
+        
+        if (Math.abs(winRect.x + winRect.width - rect.x) <= tolerance &&
+            winRect.y === rect.y && winRect.height === rect.height) {
+            return { window: win, edge: 'right' };
+        }
+        
+        if (Math.abs(rect.x + rect.width - winRect.x) <= tolerance &&
+            winRect.y === rect.y && winRect.height === rect.height) {
+            return { window: win, edge: 'left' };
+        }
+        
+        if (Math.abs(winRect.y + winRect.height - rect.y) <= tolerance &&
+            winRect.x === rect.x && winRect.width === rect.width) {
+            return { window: win, edge: 'bottom' };
+        }
+        
+        if (Math.abs(rect.y + rect.height - winRect.y) <= tolerance &&
+            winRect.x === rect.x && winRect.width === rect.width) {
+            return { window: win, edge: 'top' };
+        }
+    }
+    
+    return null;
 }
 
 function disable() {
@@ -737,3 +816,5 @@ function disable() {
     snapEnabled = false;
     snappedPairs = [];
 }
+
+
