@@ -27,6 +27,7 @@ let minSnapWidth;
 let minSnapHeight;
 let windowDestroyIds = new Map();
 let isHandlingResize = false;
+let mousePollId;
 
 function init(metadata) {
     settings = new Settings.ExtensionSettings(this, metadata.uuid);
@@ -70,6 +71,14 @@ function onGrabBegin(display, screen, window, op) {
         lastSnapInfo = null;
         snapEnabled = false;
         windowMovedId = currentWindow.connect('position-changed', onWindowMoved);
+        
+        // Poll mouse position continuously
+        mousePollId = Mainloop.timeout_add(50, function() {
+            if (currentWindow && snapEnabled) {
+                onWindowMoved();
+            }
+            return true;  // Keep polling
+        });
         
         enableSnapTimeout = Mainloop.timeout_add(350, function() {
             if (!currentWindow) {
@@ -254,6 +263,11 @@ function onGrabEnd(display, screen, window, op) {
         if (enableSnapTimeout) {
             Mainloop.source_remove(enableSnapTimeout);
             enableSnapTimeout = null;
+        }
+        
+        if (mousePollId) {
+            Mainloop.source_remove(mousePollId);
+            mousePollId = null;
         }
         
         if (snapEnabled) {
@@ -542,6 +556,21 @@ function getSnapInfo(x, y, monitor) {
     let colWidth = monitor.width / cols;
     let rowHeight = monitor.height / rows;
     
+    // Check corners FIRST
+    if (relX <= threshold && relY <= threshold) {
+        return { col: 0, row: 0, colSpan: 1, rowSpan: 1 };
+    }
+    if (relX >= monitor.width - threshold && relY <= threshold) {
+        return { col: cols - 1, row: 0, colSpan: 1, rowSpan: 1 };
+    }
+    if (relX <= threshold && relY >= monitor.height - threshold) {
+        return { col: 0, row: rows - 1, colSpan: 1, rowSpan: 1 };
+    }
+    if (relX >= monitor.width - threshold && relY >= monitor.height - threshold) {
+        return { col: cols - 1, row: rows - 1, colSpan: 1, rowSpan: 1 };
+    }
+    
+    // Then check edges
     let snapCol = -1;
     let snapRow = -1;
     
@@ -802,6 +831,11 @@ function disable() {
         enableSnapTimeout = null;
     }
     
+    if (mousePollId) {
+        Mainloop.source_remove(mousePollId);
+        mousePollId = null;
+    }
+    
     destroyPreview(null);
     
     windowDestroyIds.forEach((id, window) => {
@@ -816,5 +850,3 @@ function disable() {
     snapEnabled = false;
     snappedPairs = [];
 }
-
-
