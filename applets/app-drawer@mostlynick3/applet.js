@@ -149,14 +149,20 @@ MyApplet.prototype = {
 				style: 'padding: 24px 24px 12px 24px;'
 			});
 			
-			let gap = '  ';
+			let searchIcon = new St.Icon({
+				icon_name: 'edit-find-symbolic',
+				icon_size: 16,
+				style: 'margin-right: 8px;'
+			});
+
 			this.searchEntry = new St.Entry({
-				hint_text: gap + 'Search apps...',
 				track_hover: true,
 				can_focus: true,
 				style_class: 'app-drawer-search',
-				style: 'width: 400px; padding: 12px 16px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white; font-size: 14px;'
+				style: 'width: 400px; padding: 12px 16px 12px 40px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white; font-size: 14px;'
 			});
+
+			this.searchEntry.set_primary_icon(searchIcon);
 			
 			this.searchClearButton = new St.Icon({
 				icon_name: 'edit-clear-symbolic',
