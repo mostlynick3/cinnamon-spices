@@ -531,11 +531,6 @@ function enableAutoHide() {
             } else if (!shouldShow && !state.isHidden) {
                 hidePanel(panel);
             }
-
-            if (shouldShowOnNoFocus && !state.isHidden) {
-                state.lastWidth = 0;
-                checkAndApplyStyle(panel, true);
-            }
         });
         
         return true;
@@ -660,7 +655,7 @@ function startSizeMonitoring() {
             if (shouldApplyToPanel(panel)) {
                 let state = panelStates[panel.panelId];
                 if (state && !state.isHidden) {
-                    checkAndApplyStyle(panel);
+                    checkAndApplyStyle(panel, true);
                 }
             }
         });
@@ -678,24 +673,29 @@ function checkAndApplyStyle(panel, forceApply) {
         return;
     }
     
-    let contentWidth = 0;
+    [panel._leftBox, panel._centerBox, panel._rightBox].forEach(box => {
+        box.get_children().forEach(child => {
+            if (child._applet && child._applet._updateApplet) {
+                child._applet._updateApplet();
+            }
+            if (child._applet && child._applet.on_panel_height_changed) {
+                child._applet.on_panel_height_changed();
+            }
+            if (child.actor) {
+                child.actor.queue_relayout();
+            }
+        });
+    });
     
-    panel._leftBox.get_children().forEach(child => {
-        let [minWidth, naturalWidth] = child.get_preferred_width(-1);
-        contentWidth += naturalWidth;
-    });
-    panel._centerBox.get_children().forEach(child => {
-        let [minWidth, naturalWidth] = child.get_preferred_width(-1);
-        contentWidth += naturalWidth;
-    });
-    panel._rightBox.get_children().forEach(child => {
-        let [minWidth, naturalWidth] = child.get_preferred_width(-1);
-        contentWidth += naturalWidth;
-    });
+    let [minWidth, leftWidth] = panel._leftBox.get_preferred_width(-1);
+    let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
+    let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
+    
+    let contentWidth = leftWidth + centerWidth + rightWidth;
     
     let panelPadding = 20;
     let newWidth = Math.max(contentWidth + (panelPadding * 2), 200);
-    
+
     if (newWidth !== state.lastWidth || forceApply) {
         state.lastWidth = newWidth;
         applyStyle(panel, forceApply);
