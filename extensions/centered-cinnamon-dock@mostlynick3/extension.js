@@ -160,9 +160,9 @@ function cleanupAllPanels() {
     disableAutoHide();
 
     if (displayStateSignal) {
-		Main.layoutManager.disconnect(displayStateSignal);
-		displayStateSignal = null;
-	}
+        Main.layoutManager.disconnect(displayStateSignal);
+        displayStateSignal = null;
+    }
 
     if (sizeCheckTimeout) {
         Mainloop.source_remove(sizeCheckTimeout);
@@ -231,23 +231,23 @@ function initializePanels() {
         }
     });
     
-	workspaceSignal = global.screen.connect('workspace-switched', function() {
-		if (isInEditMode) return;
-		
-		Main.panelManager.panels.forEach(panel => {
-			if (shouldApplyToPanel(panel)) {
-				let state = panelStates[panel.panelId];
-				if (state) {
-					state.lastWidth = 0;
-					
-					Mainloop.timeout_add(50, function() {
-						checkAndApplyStyle(panel, true);
-						return false;
-					});
-				}
-			}
-		});
-	});
+    workspaceSignal = global.screen.connect('workspace-switched', function() {
+        if (isInEditMode) return;
+        
+        Main.panelManager.panels.forEach(panel => {
+            if (shouldApplyToPanel(panel)) {
+                let state = panelStates[panel.panelId];
+                if (state) {
+                    state.lastWidth = 0;
+                    
+                    Mainloop.timeout_add(50, function() {
+                        checkAndApplyStyle(panel, true);
+                        return false;
+                    });
+                }
+            }
+        });
+    });
     
     Mainloop.timeout_add(100, function() {
         if (!isInEditMode) {
@@ -330,16 +330,16 @@ function initPanel(panel) {
     });
     state.menuSignals.push({ obj: panel.actor, id: styleSignal });
     
-	let showSignal = panel.actor.connect('show', function() {
-		if (isInEditMode) return;
-		
-		let state = panelStates[panel.panelId];
-		if (state && state.isHidden && settings.getValue("auto-hide")) {
-			panel.actor.hide();
-			state.isHidden = false;
-		}
-	});
-	state.menuSignals.push({ obj: panel.actor, id: showSignal });
+    let showSignal = panel.actor.connect('show', function() {
+        if (isInEditMode) return;
+        
+        let state = panelStates[panel.panelId];
+        if (state && state.isHidden && settings.getValue("auto-hide")) {
+            panel.actor.hide();
+            state.isHidden = false;
+        }
+    });
+    state.menuSignals.push({ obj: panel.actor, id: showSignal });
 }
 
 function cleanupTrackedMenus(panel) {
@@ -530,6 +530,11 @@ function enableAutoHide() {
                 showPanel(panel);
             } else if (!shouldShow && !state.isHidden) {
                 hidePanel(panel);
+            }
+
+            if (shouldShowOnNoFocus && !state.isHidden) {
+                state.lastWidth = 0;
+                checkAndApplyStyle(panel, true);
             }
         });
         
