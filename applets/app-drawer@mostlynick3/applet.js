@@ -115,12 +115,28 @@ MyApplet.prototype = {
         this.filteredApps = this.apps.slice();
     },
 
+	_getMonitorGeometry: function() {
+		let [mouseX, mouseY] = global.get_pointer();
+		
+		for (let i = 0; i < Main.layoutManager.monitors.length; i++) {
+			let monitor = Main.layoutManager.monitors[i];
+			if (mouseX >= monitor.x && mouseX < monitor.x + monitor.width &&
+				mouseY >= monitor.y && mouseY < monitor.y + monitor.height) {
+				return monitor;
+			}
+		}
+		
+		return Main.layoutManager.primaryMonitor;
+	},
+
     _showModal: function() {
         let isFirstOpen = this.apps.length === 0;
         
         this._loadApps();
         this.currentPage = 0;
         this.isSearchMode = false;
+        
+        let monitor = this._getMonitorGeometry();
         
         let bgColor = this._rgbToRgba(this.bgColor, this.bgOpacity);
         
@@ -131,8 +147,8 @@ MyApplet.prototype = {
             style: 'background-color: ' + bgColor + '; backdrop-filter: blur(20px);'
         });
         
-        this.modal.set_position(0, 0);
-        this.modal.set_size(global.screen_width, global.screen_height);
+        this.modal.set_position(monitor.x, monitor.y);
+        this.modal.set_size(monitor.width, monitor.height);
         
         let containerColor = this._rgbToRgba(this.containerColor, this.containerOpacity);
         
@@ -261,6 +277,10 @@ MyApplet.prototype = {
             this.prevButton = new St.Button({
                 label: '←',
                 style: 'padding: 16px 32px; margin: 0 16px; background: rgba(255, 255, 255, 0.1); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.2);'
+            });
+
+            this.prevButton.connect('clicked', () => {
+                this._navigateLeft();
             });
 
             this.nextButton = new St.Button({
@@ -759,7 +779,7 @@ MyApplet.prototype = {
         let iconActor = new St.Icon({
             gicon: icon,
             icon_size: this.iconSize,
-            x_align: Clutter.ActorAlign.CENTER,
+			x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER
         });
         

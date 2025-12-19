@@ -14,6 +14,7 @@ let actorAddedSignal;
 let editModeSignal;
 let displayStateSignal;
 let isInEditMode = false;
+let settingsCallbacks = {};
 
 function init(metadata) {
 }
@@ -21,27 +22,35 @@ function init(metadata) {
 function enable() {
     settings = new Settings.ExtensionSettings(this, "centered-cinnamon-dock@mostlynick3");
     
-    settings.bind("transparency", "transparency", function() {
+    settingsCallbacks.transparency = function() {
         if (!isInEditMode) {
             applyStyleToAll();
         }
-    });
-    settings.bind("height-offset", "heightOffset", function() {
+    };
+    settings.bind("transparency", "transparency", settingsCallbacks.transparency);
+    
+    settingsCallbacks.heightOffset = function() {
         if (!isInEditMode) {
             applyStyleToAll();
             updateMenuPositions();
         }
-    });
-    settings.bind("auto-hide", "autoHide", function() {
+    };
+    settings.bind("height-offset", "heightOffset", settingsCallbacks.heightOffset);
+    
+    settingsCallbacks.autoHide = function() {
         toggleAutoHide();
-    });
-    settings.bind("hover-pixels", "hoverPixels", function() {
+    };
+    settings.bind("auto-hide", "autoHide", settingsCallbacks.autoHide);
+    
+    settingsCallbacks.hoverPixels = function() {
         if (settings.getValue("auto-hide")) {
             disableAutoHide();
             enableAutoHide();
         }
-    });
-    settings.bind("no-window-shift", "noWindowShift", function() {
+    };
+    settings.bind("hover-pixels", "hoverPixels", settingsCallbacks.hoverPixels);
+    
+    settingsCallbacks.noWindowShift = function() {
         Main.panelManager.panels.forEach(panel => {
             if (shouldApplyToPanel(panel)) {
                 if (settings.getValue("no-window-shift")) {
@@ -51,22 +60,29 @@ function enable() {
                 }
             }
         });
-    });
-    settings.bind("animation-time", "animationTime", function() {
-    });
-    settings.bind("show-on-no-focus", "showOnNoFocus", function() {
+    };
+    settings.bind("no-window-shift", "noWindowShift", settingsCallbacks.noWindowShift);
+    
+    settingsCallbacks.animationTime = function() {
+    };
+    settings.bind("animation-time", "animationTime", settingsCallbacks.animationTime);
+    
+    settingsCallbacks.showOnNoFocus = function() {
         if (settings.getValue("auto-hide")) {
             disableAutoHide();
             enableAutoHide();
         }
-    });
-    settings.bind("panel-mode", "panelMode", function() {
+    };
+    settings.bind("show-on-no-focus", "showOnNoFocus", settingsCallbacks.showOnNoFocus);
+    
+    settingsCallbacks.panelMode = function() {
         cleanupAllPanels();
         Mainloop.timeout_add(50, function() {
             initializePanels();
             return false;
         });
-    });
+    };
+    settings.bind("panel-mode", "panelMode", settingsCallbacks.panelMode);
     
     isInEditMode = global.settings.get_boolean("panel-edit-mode");
     
@@ -188,13 +204,15 @@ function cleanupAllPanels() {
         let state = panelStates[panel.panelId];
         
         if (state) {
-            state.menuSignals.forEach(signal => {
-                if (signal.obj && signal.id) {
-                    try {
-                        signal.obj.disconnect(signal.id);
-                    } catch(e) {}
-                }
-            });
+            if (state.styleSignal) {
+                panel.actor.disconnect(state.styleSignal);
+                state.styleSignal = null;
+            }
+            
+            if (state.showSignal) {
+                panel.actor.disconnect(state.showSignal);
+                state.showSignal = null;
+            }
             
             Tweener.removeTweens(panel.actor);
             panel.actor.set_style('');
@@ -306,12 +324,13 @@ function initPanel(panel) {
     panelStates[panel.panelId] = {
         originalY: panel.actor.y,
         lastWidth: 0,
-        menuSignals: [],
         trackedMenus: [],
         isHidden: false,
         location: getPanelLocation(panel),
         savedOpacity: 255,
-        wasHidden: false
+        wasHidden: false,
+        styleSignal: null,
+        showSignal: null
     };
     
     let state = panelStates[panel.panelId];
@@ -320,7 +339,7 @@ function initPanel(panel) {
         Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: false });
     }
     
-    let styleSignal = panel.actor.connect('style-changed', function() {
+    state.styleSignal = panel.actor.connect('style-changed', function() {
         if (isInEditMode) return;
         
         Mainloop.timeout_add(10, function() {
@@ -328,9 +347,8 @@ function initPanel(panel) {
             return false;
         });
     });
-    state.menuSignals.push({ obj: panel.actor, id: styleSignal });
     
-    let showSignal = panel.actor.connect('show', function() {
+    state.showSignal = panel.actor.connect('show', function() {
         if (isInEditMode) return;
         
         let state = panelStates[panel.panelId];
@@ -339,7 +357,6 @@ function initPanel(panel) {
             state.isHidden = false;
         }
     });
-    state.menuSignals.push({ obj: panel.actor, id: showSignal });
 }
 
 function cleanupTrackedMenus(panel) {
@@ -402,7 +419,7 @@ function hasActiveMenus(panel) {
 function isMouseOverDockOrMenus(panel) {
     let [x, y, mods] = global.get_pointer();
     let actor = global.stage.get_actor_at_pos(Clutter.PickMode.REACTIVE, x, y);
-    
+	
     if (!actor) {
         return false;
     }
@@ -421,8 +438,9 @@ function isMouseOverDockOrMenus(panel) {
             (actor.has_style_class_name('popup-menu') || 
              actor.has_style_class_name('menu') ||
              actor.has_style_class_name('popup-menu-content') ||
-             actor.has_style_class_name('popup-menu-item'))) {
-            
+             actor.has_style_class_name('popup-menu-item') ||
+             actor.has_style_class_name('item-box'))) {
+
             let parent = actor;
             while (parent) {
                 if (parent._delegate && parent._delegate.sourceActor) {
@@ -748,4 +766,6 @@ function disable() {
         settings.finalize();
         settings = null;
     }
+    
+    settingsCallbacks = {};
 }
