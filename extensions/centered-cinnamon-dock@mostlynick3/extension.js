@@ -15,6 +15,7 @@ let editModeSignal;
 let displayStateSignal;
 let isInEditMode = false;
 let settingsCallbacks = {};
+let windowCreatedSignal;
 
 function init(metadata) {
 }
@@ -84,6 +85,19 @@ function enable() {
     };
     settings.bind("panel-mode", "panelMode", settingsCallbacks.panelMode);
     
+    settingsCallbacks.zoomFactor = function() {
+    };
+    settings.bind("zoom-factor", "zoomFactor", settingsCallbacks.zoomFactor);
+    
+    settingsCallbacks.zoomEnabled = function() {
+        Main.panelManager.panels.forEach(panel => {
+            if (shouldApplyToPanel(panel)) {
+                setupAppletZoom(panel);
+            }
+        });
+    };
+    settings.bind("zoom-enabled", "zoomEnabled", settingsCallbacks.zoomEnabled);
+    
     isInEditMode = global.settings.get_boolean("panel-edit-mode");
     
     editModeSignal = global.settings.connect("changed::panel-edit-mode", function() {
@@ -94,22 +108,17 @@ function enable() {
         }
     });
     
-    displayStateSignal = Main.layoutManager.connect('monitors-changed', function() {
-        if (isInEditMode) return;
-        
-        Mainloop.timeout_add(100, function() {
-            Main.panelManager.panels.forEach(panel => {
-                if (shouldApplyToPanel(panel)) {
-                    let state = panelStates[panel.panelId];
-                    if (state) {
-                        state.originalY = panel.actor.y;
-                        checkAndApplyStyle(panel, true);
-                    }
-                }
-            });
-            return false;
-        });
-    });
+	displayStateSignal = Main.layoutManager.connect('monitors-changed', function() {
+		if (isInEditMode) return;
+		
+		disableAutoHide();
+		panelStates = {};
+		
+		Mainloop.idle_add(function() {
+			initializePanels();
+			return false;
+		});
+	});
     
     initializePanels();
 }
@@ -135,6 +144,8 @@ function enterEditMode() {
                 panel.actor.y = state.originalY;
                 panel.actor.opacity = 255;
                 panel.actor.show();
+                
+                cleanupAppletZoom(panel);
             }
         }
     });
@@ -157,6 +168,7 @@ function exitEditMode() {
                 if (state) {
                     state.lastWidth = 0;
                     checkAndApplyStyle(panel, true);
+                    setupAppletZoom(panel);
                     
                     if (state.wasHidden && settings.getValue("auto-hide")) {
                         Mainloop.timeout_add(100, function() {
@@ -200,19 +212,30 @@ function cleanupAllPanels() {
         editModeSignal = null;
     }
     
+    if (windowCreatedSignal) {
+        global.display.disconnect(windowCreatedSignal);
+        windowCreatedSignal = null;
+    }
+    
     Main.panelManager.panels.forEach(panel => {
         let state = panelStates[panel.panelId];
         
         if (state) {
-            if (state.styleSignal) {
-                panel.actor.disconnect(state.styleSignal);
-                state.styleSignal = null;
-            }
+			if (state.styleSignal !== null && state.styleSignal !== undefined) {
+				try {
+					panel.actor.disconnect(state.styleSignal);
+				} catch(e) {}
+				state.styleSignal = null;
+			}
+
+			if (state.showSignal !== null && state.showSignal !== undefined) {
+				try {
+					panel.actor.disconnect(state.showSignal);
+				} catch(e) {}
+				state.showSignal = null;
+			}
             
-            if (state.showSignal) {
-                panel.actor.disconnect(state.showSignal);
-                state.showSignal = null;
-            }
+            cleanupAppletZoom(panel);
             
             Tweener.removeTweens(panel.actor);
             panel.actor.set_style('');
@@ -267,11 +290,31 @@ function initializePanels() {
         });
     });
     
+    windowCreatedSignal = global.display.connect('window-created', function(display, win) {
+        if (isInEditMode) return;
+        
+        win.connect('unmanaged', function() {
+            if (isInEditMode) return;
+            Main.panelManager.panels.forEach(panel => {
+                if (shouldApplyToPanel(panel)) {
+                    checkAndApplyStyle(panel, true);
+                }
+            });
+        });
+        
+        Main.panelManager.panels.forEach(panel => {
+            if (shouldApplyToPanel(panel)) {
+                checkAndApplyStyle(panel, true);
+            }
+        });
+    });
+    
     Mainloop.timeout_add(100, function() {
         if (!isInEditMode) {
             Main.panelManager.panels.forEach(panel => {
                 if (shouldApplyToPanel(panel)) {
                     checkAndApplyStyle(panel);
+                    setupAppletZoom(panel);
                 }
             });
         }
@@ -330,7 +373,9 @@ function initPanel(panel) {
         savedOpacity: 255,
         wasHidden: false,
         styleSignal: null,
-        showSignal: null
+        showSignal: null,
+        zoomEnterId: null,
+        zoomLeaveId: null
     };
     
     let state = panelStates[panel.panelId];
@@ -356,6 +401,104 @@ function initPanel(panel) {
             panel.actor.hide();
             state.isHidden = false;
         }
+    });
+}
+
+function setupAppletZoom(panel) {
+    if (isInEditMode) return;
+    
+    let state = panelStates[panel.panelId];
+    if (!state) return;
+    
+    cleanupAppletZoom(panel);
+    
+    if (!settings.getValue("zoom-enabled")) return;
+    
+    state.zoomEnterId = panel.actor.connect('enter-event', function(actor, event) {
+        let target = event.get_source();
+        if (target && target !== panel.actor && !isLayoutContainer(target)) {
+            zoomApplet(target, true);
+        }
+    });
+    
+    state.zoomLeaveId = panel.actor.connect('leave-event', function(actor, event) {
+        let target = event.get_source();
+        if (target && target !== panel.actor) {
+            zoomApplet(target, false);
+        }
+    });
+}
+
+function isLayoutContainer(actor) {
+    let actorType = actor.toString();
+    
+    if (actorType.includes('StBoxLayout') || 
+        actorType.includes('St.BoxLayout') ||
+        actorType.includes('StBin') ||
+        actorType.includes('St.Bin')) {
+        return true;
+    }
+	
+    return false;
+}
+
+function cleanupAppletZoom(panel) {
+    let state = panelStates[panel.panelId];
+    if (!state) return;
+    
+    if (state.zoomEnterId) {
+        try {
+            panel.actor.disconnect(state.zoomEnterId);
+        } catch(e) {}
+        state.zoomEnterId = null;
+    }
+    
+    if (state.zoomLeaveId) {
+        try {
+            panel.actor.disconnect(state.zoomLeaveId);
+        } catch(e) {}
+        state.zoomLeaveId = null;
+    }
+}
+
+function zoomApplet(actor, zoomIn) {
+    if (isInEditMode) return;
+    
+    Tweener.removeTweens(actor);
+    
+    actor.set_pivot_point(0.5, 0.5);
+    
+    let zoomFactor = settings.getValue("zoom-factor") || 1.3;
+    let targetScale = zoomIn ? zoomFactor : 1.0;
+    
+    Tweener.addTween(actor, {
+        scale_x: targetScale,
+        scale_y: targetScale,
+        time: 0.15,
+        transition: 'easeOutQuad'
+    });
+}
+function resetAllAppletZoom(panel) {
+    let boxes = [panel._leftBox, panel._centerBox, panel._rightBox];
+    
+    boxes.forEach(box => {
+        let children = box.get_children();
+        children.forEach(child => {
+            applyZoomToActor(child, 1.0);
+        });
+    });
+}
+
+function applyZoomToActor(actor, scale) {
+    Tweener.removeTweens(actor);
+    
+    actor.set_pivot_point(0.5, 0.5);
+    
+    Tweener.addTween(actor, {
+        scale_x: scale,
+        scale_y: scale,
+        time: 0.1,
+        transition: 'easeOutQuad'
     });
 }
 
@@ -528,9 +671,20 @@ function enableAutoHide() {
             let state = panelStates[panel.panelId];
             if (!state) return;
             
-            if (state.isHidden && panel.actor.opacity !== 0) {
-                panel.actor.opacity = 0;
-                panel.actor.hide();
+            if (state.isHidden) {
+                if (!panel.actor.visible) {
+                    panel.actor.show();
+                }
+                if (panel.actor.opacity !== 0) {
+                    panel.actor.opacity = 0;
+                }
+                
+                let [minWidth, leftWidth] = panel._leftBox.get_preferred_width(-1);
+                let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
+                let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
+                let contentWidth = leftWidth + centerWidth + rightWidth;
+                let panelPadding = 20;
+                state.lastWidth = Math.max(contentWidth + (panelPadding * 2), 200);
             }
             
             let menusActive = hasActiveMenus(panel);
@@ -572,10 +726,7 @@ function hidePanel(panel) {
     Tweener.addTween(panel.actor, {
         opacity: 0,
         time: animTime,
-        transition: 'easeOutQuad',
-        onComplete: function() {
-            panel.actor.hide();
-        }
+        transition: 'easeOutQuad'
     });
 }
 
@@ -590,7 +741,6 @@ function showPanel(panel) {
     let animTime = settings.getValue("animation-time") / 1000.0;
     
     Tweener.removeTweens(panel.actor);
-    panel.actor.show();
     panel.actor.opacity = 0;
     
     Mainloop.timeout_add(50, function() {
@@ -666,7 +816,7 @@ function updateMenuPosition(panel, menu) {
 }
 
 function startSizeMonitoring() {
-    sizeCheckTimeout = Mainloop.timeout_add(100, function() {
+    sizeCheckTimeout = Mainloop.timeout_add(500, function() {
         if (isInEditMode) return true;
         
         Main.panelManager.panels.forEach(panel => {
@@ -734,7 +884,7 @@ function applyStyle(panel, forceApply) {
     let margin = (monitor.width - state.lastWidth) / 2;
     let panelPadding = 20;
     
-    let savedOpacity = panel.actor.opacity;
+    let savedOpacity = state.isHidden ? 0 : panel.actor.opacity;
     
     panel.actor.set_style(
         'background-color: rgba(30, 30, 30, ' + transparency + ');' +
