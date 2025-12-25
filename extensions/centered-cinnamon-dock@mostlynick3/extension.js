@@ -435,6 +435,7 @@ function isLayoutContainer(actor) {
     if (actorType.includes('StBoxLayout') || 
         actorType.includes('St.BoxLayout') ||
         actorType.includes('StBin') ||
+        actorType.includes('ClutterActor') ||
         actorType.includes('St.Bin')) {
         return true;
     }
@@ -688,7 +689,6 @@ function enableAutoHide() {
             }
             
             let menusActive = hasActiveMenus(panel);
-            let mouseOverDockOrMenus = isMouseOverDockOrMenus(panel);
             let mouseOverTriggerZone = isMouseInTriggerZone(panel, x, y);
             
             let focusWindow = global.display.focus_window;
@@ -696,7 +696,12 @@ function enableAutoHide() {
             let showOnNoFocus = settings.getValue("show-on-no-focus");
             let shouldShowOnNoFocus = !hasNormalWindow && showOnNoFocus;
             
-            let shouldShow = menusActive || mouseOverDockOrMenus || mouseOverTriggerZone || shouldShowOnNoFocus;
+            let shouldShow = menusActive || mouseOverTriggerZone || shouldShowOnNoFocus;
+            
+            if (!state.isHidden) {
+                let mouseOverDockOrMenus = isMouseOverDockOrMenus(panel);
+                shouldShow = shouldShow || mouseOverDockOrMenus;
+            }
             
             if (shouldShow && state.isHidden) {
                 showPanel(panel);
@@ -707,6 +712,15 @@ function enableAutoHide() {
         
         return true;
     });
+}
+
+function setActorReactive(actor, reactive) {
+    actor.reactive = reactive;
+    if (actor.get_children) {
+        actor.get_children().forEach(child => {
+            setActorReactive(child, reactive);
+        });
+    }
 }
 
 function hidePanel(panel) {
@@ -726,7 +740,15 @@ function hidePanel(panel) {
     Tweener.addTween(panel.actor, {
         opacity: 0,
         time: animTime,
-        transition: 'easeOutQuad'
+        transition: 'easeOutQuad',
+        onComplete: function() {
+            if (!hasActiveMenus(panel)) {
+                panel.actor.set_scale(0.0, 0.0);
+            } else {
+                state.isHidden = false;
+                showPanel(panel);
+            }
+        }
     });
 }
 
@@ -738,27 +760,19 @@ function showPanel(panel) {
     
     state.isHidden = false;
     
+    panel.actor.set_scale(1.0, 1.0);
+    panel.actor.raise_top();
+    
     let animTime = settings.getValue("animation-time") / 1000.0;
     
     Tweener.removeTweens(panel.actor);
-    panel.actor.opacity = 0;
     
-    Mainloop.timeout_add(50, function() {
-        checkAndApplyStyle(panel);
-        Tweener.addTween(panel.actor, {
-            opacity: 255,
-            time: animTime,
-            transition: 'easeOutQuad',
-            onComplete: function() {
-                Mainloop.timeout_add(animTime * 1000, function() {
-                    if (panel.actor.opacity !== 255) {
-                        panel.actor.opacity = 255;
-                    }
-                    return false;
-                });
-            }
-        });
-        return false;
+    checkAndApplyStyle(panel);
+    
+    Tweener.addTween(panel.actor, {
+        opacity: 255,
+        time: animTime,
+        transition: 'easeOutQuad'
     });
 }
 
