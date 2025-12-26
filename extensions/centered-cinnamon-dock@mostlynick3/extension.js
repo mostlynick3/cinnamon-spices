@@ -16,6 +16,7 @@ let displayStateSignal;
 let isInEditMode = false;
 let settingsCallbacks = {};
 let windowCreatedSignal;
+let isTransitioningWorkspace = false;
 
 function init(metadata) {
 }
@@ -97,7 +98,16 @@ function enable() {
         });
     };
     settings.bind("zoom-enabled", "zoomEnabled", settingsCallbacks.zoomEnabled);
-    
+
+	settingsCallbacks.enabledPanels = function() {
+		cleanupAllPanels();
+		Mainloop.timeout_add(50, function() {
+			initializePanels();
+			return false;
+		});
+	};
+	settings.bind("enabled-panels", "enabledPanels", settingsCallbacks.enabledPanels);
+
     isInEditMode = global.settings.get_boolean("panel-edit-mode");
     
     editModeSignal = global.settings.connect("changed::panel-edit-mode", function() {
@@ -220,30 +230,40 @@ function cleanupAllPanels() {
     Main.panelManager.panels.forEach(panel => {
         let state = panelStates[panel.panelId];
         
+        Tweener.removeTweens(panel.actor);
+        
         if (state) {
-			if (state.styleSignal !== null && state.styleSignal !== undefined) {
-				try {
-					panel.actor.disconnect(state.styleSignal);
-				} catch(e) {}
-				state.styleSignal = null;
-			}
+            destroyIndicator(panel);
+            
+            if (state.hideDelayTimeout) {
+                Mainloop.source_remove(state.hideDelayTimeout);
+                state.hideDelayTimeout = null;
+            }
+            
+            if (state.styleSignal !== null && state.styleSignal !== undefined) {
+                try {
+                    panel.actor.disconnect(state.styleSignal);
+                } catch(e) {}
+                state.styleSignal = null;
+            }
 
-			if (state.showSignal !== null && state.showSignal !== undefined) {
-				try {
-					panel.actor.disconnect(state.showSignal);
-				} catch(e) {}
-				state.showSignal = null;
-			}
+            if (state.showSignal !== null && state.showSignal !== undefined) {
+                try {
+                    panel.actor.disconnect(state.showSignal);
+                } catch(e) {}
+                state.showSignal = null;
+            }
             
             cleanupAppletZoom(panel);
             
-            Tweener.removeTweens(panel.actor);
-            panel.actor.set_style('');
             panel.actor.y = state.originalY;
-            panel.actor.opacity = 255;
-            panel.actor.show();
-            Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: true });
         }
+        
+        panel.actor.set_scale(1.0, 1.0);
+        panel.actor.set_style('');
+        panel.actor.opacity = 255;
+        panel.actor.show();
+        Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: true });
     });
     
     panelStates = {};
@@ -252,7 +272,11 @@ function cleanupAllPanels() {
 function initializePanels() {
     Main.panelManager.panels.forEach(panel => {
         if (shouldApplyToPanel(panel)) {
-            initPanel(panel);
+            if (!panelStates[panel.panelId]) {
+                initPanel(panel);
+            }
+            panel.actor.show();
+            panel.actor.opacity = 255;
         }
     });
     
@@ -272,24 +296,35 @@ function initializePanels() {
         }
     });
     
-    workspaceSignal = global.screen.connect('workspace-switched', function() {
-        if (isInEditMode) return;
-        
-        Main.panelManager.panels.forEach(panel => {
-            if (shouldApplyToPanel(panel)) {
-                let state = panelStates[panel.panelId];
-                if (state) {
-                    state.lastWidth = 0;
-                    
-                    Mainloop.timeout_add(50, function() {
-                        checkAndApplyStyle(panel, true);
-                        return false;
-                    });
-                }
-            }
-        });
-    });
-    
+	workspaceSignal = global.screen.connect('workspace-switched', function() {
+		if (isInEditMode) return;
+		
+		Main.panelManager.panels.forEach(panel => {
+			if (shouldApplyToPanel(panel)) {
+				let state = panelStates[panel.panelId];
+				if (state) {
+					Tweener.removeTweens(panel.actor);
+					if (state.indicator) {
+						Tweener.removeTweens(state.indicator);
+						destroyIndicator(panel);
+					}
+					state.isHidden = false;
+					panel.actor.opacity = 0;
+					panel.actor.show();
+					state.lastWidth = 0;
+					
+					Mainloop.timeout_add(1000, function() {
+						checkAndApplyStyle(panel, true);
+						if (settings.getValue("auto-hide")) {
+							hidePanel(panel);
+						}
+						return false;
+					});
+				}
+			}
+		});
+	});
+	
     windowCreatedSignal = global.display.connect('window-created', function(display, win) {
         if (isInEditMode) return;
         
@@ -346,8 +381,22 @@ function getPanelLocation(panel) {
     return "unknown";
 }
 
+function getPanelIdentifier(panel) {
+    let monitor = Main.layoutManager.findMonitorForActor(panel.actor);
+    let monitorIndex = monitor ? Main.layoutManager.monitors.indexOf(monitor) : 0;
+    let location = getPanelLocation(panel);
+    return `monitor${monitorIndex}_${location}`;
+}
+
 function shouldApplyToPanel(panel) {
     let mode = settings.getValue("panel-mode");
+    
+    if (mode === "custom-selection") {
+        let panelId = getPanelIdentifier(panel);
+        let enabledPanels = settings.getValue("enabled-panels");
+        return enabledPanels.includes(panelId);
+    }
+    
     let location = getPanelLocation(panel);
     
     if (mode === "main") {
@@ -375,7 +424,9 @@ function initPanel(panel) {
         styleSignal: null,
         showSignal: null,
         zoomEnterId: null,
-        zoomLeaveId: null
+        zoomLeaveId: null,
+        indicator: null,
+        hideDelayTimeout: null
     };
     
     let state = panelStates[panel.panelId];
@@ -661,6 +712,14 @@ function getMonitorGeometry(panel) {
 function enableAutoHide() {
     disableAutoHide();
     
+    Main.panelManager.panels.forEach(panel => {
+        if (!shouldApplyToPanel(panel)) return;
+        let state = panelStates[panel.panelId];
+        if (!state) return;
+        
+        state.hideDelayTimeout = null;
+    });
+    
     pointerWatcher = Mainloop.timeout_add(100, function() {
         if (isInEditMode) return true;
         
@@ -686,6 +745,10 @@ function enableAutoHide() {
                 let contentWidth = leftWidth + centerWidth + rightWidth;
                 let panelPadding = 20;
                 state.lastWidth = Math.max(contentWidth + (panelPadding * 2), 200);
+                
+                if (settings.getValue("show-indicator") && !state.indicator) {
+                    createIndicator(panel);
+                }
             }
             
             let menusActive = hasActiveMenus(panel);
@@ -698,15 +761,33 @@ function enableAutoHide() {
             
             let shouldShow = menusActive || mouseOverTriggerZone || shouldShowOnNoFocus;
             
-            if (!state.isHidden) {
-                let mouseOverDockOrMenus = isMouseOverDockOrMenus(panel);
-                shouldShow = shouldShow || mouseOverDockOrMenus;
-            }
+			if (!state.isHidden) {
+				let mouseOverDockOrMenus = isMouseOverDockOrMenus(panel);
+				shouldShow = shouldShow || mouseOverDockOrMenus;
+			} else if (state.isHiding) {
+				if (isMouseOverDockOrMenus(panel)) {
+					shouldShow = true;
+				}
+			}
             
             if (shouldShow && state.isHidden) {
+                if (state.hideDelayTimeout) {
+                    Mainloop.source_remove(state.hideDelayTimeout);
+                    state.hideDelayTimeout = null;
+                }
                 showPanel(panel);
             } else if (!shouldShow && !state.isHidden) {
-                hidePanel(panel);
+                if (!state.hideDelayTimeout) {
+                    let hideDelay = settings.getValue("hide-delay");
+                    state.hideDelayTimeout = Mainloop.timeout_add(hideDelay, function() {
+                        state.hideDelayTimeout = null;
+                        hidePanel(panel);
+                        return false;
+                    });
+                }
+            } else if (shouldShow && !state.isHidden && state.hideDelayTimeout) {
+                Mainloop.source_remove(state.hideDelayTimeout);
+                state.hideDelayTimeout = null;
             }
         });
         
@@ -714,42 +795,125 @@ function enableAutoHide() {
     });
 }
 
-function setActorReactive(actor, reactive) {
-    actor.reactive = reactive;
-    if (actor.get_children) {
-        actor.get_children().forEach(child => {
-            setActorReactive(child, reactive);
+function createIndicator(panel) {
+    let state = panelStates[panel.panelId];
+    if (!state) return;
+    
+    if (state.indicator) {
+        destroyIndicator(panel);
+    }
+    
+    let monitor = getMonitorGeometry(panel);
+    let hoverPixels = settings.getValue("hover-pixels");
+    let transparency = settings.getValue("transparency") / 100.0;
+    
+    let indicator = new imports.gi.St.BoxLayout({
+        style_class: 'dock-indicator',
+        reactive: false
+    });
+    
+    let indicatorWidth = state.lastWidth;
+    let indicatorHeight = hoverPixels;
+    let indicatorX = monitor.x + (monitor.width - indicatorWidth) / 2;
+    let indicatorY;
+    
+    if (state.location === "bottom") {
+        indicatorY = monitor.y + monitor.height - hoverPixels;
+    } else {
+        indicatorY = monitor.y;
+    }
+    
+    indicator.set_position(indicatorX, indicatorY);
+    indicator.set_size(indicatorWidth, indicatorHeight);
+    
+    indicator.set_style(
+        'background-color: rgba(30, 30, 30, ' + transparency + ');' +
+        'border-radius: 12px;'
+    );
+    
+    Main.layoutManager.addChrome(indicator, {
+        affectsStruts: false,
+        affectsInputRegion: false
+    });
+    
+    state.indicator = indicator;
+    state.indicatorOriginalY = indicatorY;
+}
+
+function animateIndicatorOnHover(panel, isHovering) {
+    let state = panelStates[panel.panelId];
+    if (!state || !state.indicator) return;
+    
+    let animTime = settings.getValue("animation-time") / 1000.0;
+    let monitor = getMonitorGeometry(panel);
+    let panelCenterY = panel.actor.y + (panel.actor.height / 2);
+    
+    Tweener.removeTweens(state.indicator);
+    
+    if (isHovering) {
+        Tweener.addTween(state.indicator, {
+            y: panelCenterY,
+            opacity: 0,
+            time: animTime,
+            transition: 'easeOutQuad'
+        });
+    } else {
+        Tweener.addTween(state.indicator, {
+            y: state.indicatorOriginalY,
+            opacity: 255,
+            time: animTime,
+            transition: 'easeOutQuad'
         });
     }
 }
 
-function hidePanel(panel) {
-    if (isInEditMode) return;
-    
+
+function destroyIndicator(panel) {
     let state = panelStates[panel.panelId];
-    if (!state || state.isHidden) return;
+    if (!state || !state.indicator) return;
     
-    if (hasActiveMenus(panel)) {
-        return;
+    Main.layoutManager.removeChrome(state.indicator);
+    state.indicator.destroy();
+    state.indicator = null;
+}
+
+function updateIndicator(panel) {
+    let state = panelStates[panel.panelId];
+    if (!state || !state.indicator) return;
+    
+    let monitor = getMonitorGeometry(panel);
+    let hoverPixels = settings.getValue("hover-pixels");
+    let transparency = settings.getValue("transparency") / 100.0;
+    
+    let indicatorWidth = state.lastWidth;
+    let indicatorX = monitor.x + (monitor.width - indicatorWidth) / 2;
+    let indicatorY;
+    
+    if (state.location === "bottom") {
+        indicatorY = monitor.y + monitor.height - hoverPixels;
+    } else {
+        indicatorY = monitor.y;
     }
     
-    state.isHidden = true;
+    state.indicator.set_position(indicatorX, indicatorY);
     
-    let animTime = settings.getValue("animation-time") / 1000.0;
+    Tweener.removeTweens(state.indicator);
     
-    Tweener.addTween(panel.actor, {
-        opacity: 0,
-        time: animTime,
+    Tweener.addTween(state.indicator, {
+        width: indicatorWidth,
+        time: 0.2,
         transition: 'easeOutQuad',
-        onComplete: function() {
-            if (!hasActiveMenus(panel)) {
-                panel.actor.set_scale(0.0, 0.0);
-            } else {
-                state.isHidden = false;
-                showPanel(panel);
-            }
+        onUpdate: function() {
+            let currentWidth = state.indicator.width;
+            let newX = monitor.x + (monitor.width - currentWidth) / 2;
+            state.indicator.x = newX;
         }
     });
+    
+    state.indicator.set_style(
+        'background-color: rgba(30, 30, 30, ' + transparency + ');' +
+        'border-radius: 12px;'
+    );
 }
 
 function showPanel(panel) {
@@ -759,6 +923,10 @@ function showPanel(panel) {
     if (!state || !state.isHidden) return;
     
     state.isHidden = false;
+    
+    if (state.indicator) {
+        animateIndicatorOnHover(panel, true);
+    }
     
     panel.actor.set_scale(1.0, 1.0);
     panel.actor.raise_top();
@@ -776,6 +944,67 @@ function showPanel(panel) {
     });
 }
 
+function hidePanel(panel) {
+    if (isInEditMode) return;
+    
+    let state = panelStates[panel.panelId];
+    if (!state || state.isHidden) return;
+    
+    if (hasActiveMenus(panel)) {
+        return;
+    }
+    
+    state.isHiding = true;
+    
+    let animTime = settings.getValue("animation-time") / 1000.0;
+    
+    if (settings.getValue("show-indicator")) {
+        if (!state.indicator) {
+            let monitor = getMonitorGeometry(panel);
+            let panelCenterY = state.originalY + (panel.actor.height / 2);
+            let heightOffset = settings.getValue("height-offset");
+            let adjustedOffset = state.location === "top" ? -heightOffset : heightOffset;
+            panelCenterY += adjustedOffset;
+            
+            createIndicator(panel);
+            state.indicator.opacity = 0;
+            state.indicator.y = panelCenterY;
+        } else {
+            let monitor = getMonitorGeometry(panel);
+            let panelCenterY = state.originalY + (panel.actor.height / 2);
+            let heightOffset = settings.getValue("height-offset");
+            let adjustedOffset = state.location === "top" ? -heightOffset : heightOffset;
+            panelCenterY += adjustedOffset;
+            
+            state.indicator.opacity = 0;
+            state.indicator.y = panelCenterY;
+        }
+        
+        Tweener.addTween(state.indicator, {
+            y: state.indicatorOriginalY,
+            opacity: 255,
+            time: animTime,
+            transition: 'easeOutQuad'
+        });
+    }
+    
+    Tweener.addTween(panel.actor, {
+        opacity: 0,
+        time: animTime,
+        transition: 'easeOutQuad',
+        onComplete: function() {
+            state.isHiding = false;
+            state.isHidden = true;
+            if (!hasActiveMenus(panel)) {
+                panel.actor.set_scale(0.0, 0.0);
+            } else {
+                state.isHidden = false;
+                showPanel(panel);
+            }
+        }
+    });
+}
+
 function disableAutoHide() {
     if (pointerWatcher) {
         Mainloop.source_remove(pointerWatcher);
@@ -785,6 +1014,7 @@ function disableAutoHide() {
     Main.panelManager.panels.forEach(panel => {
         let state = panelStates[panel.panelId];
         if (state) {
+            destroyIndicator(panel);
             Tweener.removeTweens(panel.actor);
             panel.actor.opacity = 255;
             panel.actor.show();
@@ -810,7 +1040,7 @@ function updateMenuPositions() {
 }
 
 function updateMenuPosition(panel, menu) {
-    if (isInEditMode) return;
+    if (isInEditMode || isTransitioningWorkspace) return true;
     
     let state = panelStates[panel.panelId];
     if (!state) return;
@@ -831,7 +1061,7 @@ function updateMenuPosition(panel, menu) {
 
 function startSizeMonitoring() {
     sizeCheckTimeout = Mainloop.timeout_add(500, function() {
-        if (isInEditMode) return true;
+        if (isInEditMode || isTransitioningWorkspace) return true;
         
         Main.panelManager.panels.forEach(panel => {
             if (shouldApplyToPanel(panel)) {
@@ -881,6 +1111,10 @@ function checkAndApplyStyle(panel, forceApply) {
     if (newWidth !== state.lastWidth || forceApply) {
         state.lastWidth = newWidth;
         applyStyle(panel, forceApply);
+        
+        if (state.indicator && settings.getValue("show-indicator")) {
+            updateIndicator(panel);
+        }
     }
 }
 
