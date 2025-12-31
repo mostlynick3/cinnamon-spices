@@ -1137,7 +1137,9 @@ function resetAllAppletZoom(panel) {
     boxes.forEach(box => {
         let children = box.get_children();
         children.forEach(child => {
-            applyZoomToActor(child, 1.0);
+            Tweener.removeTweens(child);
+            child.set_pivot_point(0.5, 0.5);
+            child.set_scale(1.0, 1.0);
         });
     });
 }
@@ -1626,6 +1628,8 @@ function showPanel(panel) {
     panel.actor.show();
     panel.actor.raise_top();
     
+    resetAllAppletZoom(panel);
+    
     checkAndApplyStyle(panel);
     
     let animTime = getPanelSetting(panel, "animationTime");
@@ -1720,6 +1724,8 @@ function hidePanel(panel) {
     if (hasActiveMenus(panel)) {
         return;
     }
+    
+    resetAllAppletZoom(panel);
     
     if (state.animationTimer) {
         Mainloop.source_remove(state.animationTimer);
@@ -2061,8 +2067,14 @@ function applyStyle(panel, forceApply) {
             'opacity: ' + transparency + ';'
         );
         panel.actor.opacity = savedOpacity;
-        panel.actor.y = state.originalY + adjustedOffset;
-        panel.actor.x = state.originalX;
+        
+        let targetY = state.originalY + adjustedOffset;
+        if (panel.actor.y !== targetY) {
+            panel.actor.y = targetY;
+        }
+        if (panel.actor.x !== state.originalX) {
+            panel.actor.x = state.originalX;
+        }
 	} else if (state.location === "left" || state.location === "right") {
 		let adjustedOffset = state.location === "left" ? -heightOffset : heightOffset;
 		
@@ -2102,8 +2114,14 @@ function applyStyle(panel, forceApply) {
 			'opacity: ' + transparency + ';'
 		);
 		panel.actor.opacity = savedOpacity;
-		panel.actor.x = state.originalX + adjustedOffset;
-		panel.actor.y = state.originalY;
+		
+		let targetX = state.originalX + adjustedOffset;
+		if (panel.actor.x !== targetX) {
+			panel.actor.x = targetX;
+		}
+		if (panel.actor.y !== state.originalY) {
+			panel.actor.y = state.originalY;
+		}
 	}
 }
 
