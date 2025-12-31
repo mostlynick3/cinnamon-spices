@@ -44,6 +44,9 @@ class PanelSettingsDialog {
         let monitor = Main.layoutManager.findMonitorForActor(this.panel.actor);
         let monitorIndex = monitor ? Main.layoutManager.monitors.indexOf(monitor) : 0;
         
+        let maxWidth = Math.floor(monitor.width * 0.5);
+        let maxHeight = Math.floor(monitor.height * 0.6);
+        
         this.dialog = new ModalDialog.ModalDialog();
         
         let title = new St.Label({
@@ -52,11 +55,11 @@ class PanelSettingsDialog {
         });
         this.dialog.contentLayout.add(title);
         
-		let scrollView = new St.ScrollView({
-			style: 'max-height: 400px; min-width: 500px; padding: 10px;',
-			hscrollbar_policy: St.PolicyType.NEVER,
-			vscrollbar_policy: St.PolicyType.AUTOMATIC
-		});
+        let scrollView = new St.ScrollView({
+            style: `max-height: ${maxHeight}px; max-width: ${maxWidth}px; min-width: 500px; padding: 10px;`,
+            hscrollbar_policy: St.PolicyType.NEVER,
+            vscrollbar_policy: St.PolicyType.AUTOMATIC
+        });
         
         this.contentBox = new St.BoxLayout({
             vertical: true,
@@ -85,7 +88,7 @@ class PanelSettingsDialog {
             }
         ]);
     }
-    
+
     _buildSettings() {
         this._addHeader('General');
         
@@ -209,35 +212,35 @@ class PanelSettingsDialog {
             vertical: false
         });
         
-		let label = new St.Label({
-			text: labelText,
-			y_align: Clutter.ActorAlign.CENTER
-		});
+        let label = new St.Label({
+            text: labelText,
+            y_align: Clutter.ActorAlign.CENTER
+        });
 
-		let labelBin = new St.Bin({
-			child: label,
-			x_align: St.Align.START,
-			style: 'padding-right: 20px;'
-		});
+        let labelBin = new St.Bin({
+            child: label,
+            x_align: St.Align.START,
+            style: 'padding-right: 20px;'
+        });
 
-		let switchWidget = new St.Button({
-			style: 'width: 50px; height: 30px; background-color: ' + (initialValue ? '#4a90d9' : '#666666') + '; border-radius: 15px;',
-			toggle_mode: true,
-			checked: initialValue
-		});
+        let switchWidget = new St.Button({
+            style: 'width: 50px; height: 30px; background-color: ' + (initialValue ? '#4a90d9' : '#666666') + '; border-radius: 15px;',
+            toggle_mode: true,
+            checked: initialValue
+        });
 
-		switchWidget.connect('clicked', function() {
-			switchWidget.set_style('width: 50px; height: 30px; background-color: ' + (switchWidget.checked ? '#4a90d9' : '#666666') + '; border-radius: 15px;');
-		});
+        switchWidget.connect('clicked', function() {
+            switchWidget.set_style('width: 50px; height: 30px; background-color: ' + (switchWidget.checked ? '#4a90d9' : '#666666') + '; border-radius: 15px;');
+        });
 
-		let switchBin = new St.Bin({
-			child: switchWidget,
-			x_align: St.Align.END,
-			style: 'padding-right: 10px;'
-		});
+        let switchBin = new St.Bin({
+            child: switchWidget,
+            x_align: St.Align.END,
+            style: 'padding-right: 10px;'
+        });
 
-		box.add(labelBin, { expand: true });
-		box.add(switchBin, { expand: false });
+        box.add(labelBin, { expand: true });
+        box.add(switchBin, { expand: false });
         
         this.contentBox.add(box, {
             x_fill: true,
@@ -247,35 +250,35 @@ class PanelSettingsDialog {
         return switchWidget;
     }
     
-	_addSlider(labelText, initialValue, min, max, step) {
-		let box = new St.BoxLayout({
-			style: 'padding: 8px 20px 8px 5px;',
-			vertical: true
-		});
-		
-		let topBox = new St.BoxLayout({
-			vertical: false
-		});
-		
-		let label = new St.Label({
-			text: labelText,
-			y_align: Clutter.ActorAlign.CENTER
-		});
-		
-		let valueLabel = new St.Label({
-			text: initialValue.toFixed(step < 1 ? 1 : 0),
-			style: 'min-width: 50px; text-align: right;',
-			y_align: Clutter.ActorAlign.CENTER
-		});
-		
-		let valueBin = new St.Bin({
-			child: valueLabel,
-			x_align: St.Align.END,
-			style: 'padding-right: 10px;'
-		});
-		
-		topBox.add(label, { expand: true });
-		topBox.add(valueBin, { expand: false });
+    _addSlider(labelText, initialValue, min, max, step) {
+        let box = new St.BoxLayout({
+            style: 'padding: 8px 20px 8px 5px;',
+            vertical: true
+        });
+        
+        let topBox = new St.BoxLayout({
+            vertical: false
+        });
+        
+        let label = new St.Label({
+            text: labelText,
+            y_align: Clutter.ActorAlign.CENTER
+        });
+        
+        let valueLabel = new St.Label({
+            text: initialValue.toFixed(step < 1 ? 1 : 0),
+            style: 'min-width: 50px; text-align: right;',
+            y_align: Clutter.ActorAlign.CENTER
+        });
+        
+        let valueBin = new St.Bin({
+            child: valueLabel,
+            x_align: St.Align.END,
+            style: 'padding-right: 10px;'
+        });
+        
+        topBox.add(label, { expand: true });
+        topBox.add(valueBin, { expand: false });
         
         let sliderBox = new St.BoxLayout({
             style: 'padding-top: 5px;'
@@ -384,145 +387,145 @@ class PanelSettingsDialog {
         slider.queue_repaint();
     }
 
-	_addColorButton(labelText, initialColor) {
-		let box = new St.BoxLayout({
-			style: 'padding: 8px 20px 8px 5px;',
-			vertical: true
-		});
-		
-		let topBox = new St.BoxLayout({
-			vertical: false
-		});
-		
-		let label = new St.Label({
-			text: labelText,
-			y_align: Clutter.ActorAlign.CENTER
-		});
-		
-		topBox.add(label, { expand: true });
-		
-		let previewBox = new St.Bin({
-			style: 'width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + this._rgbaToHex(initialColor) + ';',
-			x_align: St.Align.END
-		});
-		
-		topBox.add(previewBox, { expand: false });
-		
-		box.add(topBox, { x_fill: true, y_fill: false });
-		
-		let hexBox = new St.BoxLayout({
-			style: 'padding-top: 10px;',
-			vertical: false
-		});
-		
-		let hexLabel = new St.Label({
-			text: 'Hex color:',
-			y_align: Clutter.ActorAlign.CENTER,
-			style: 'padding-right: 10px;'
-		});
-		
-		let hexEntry = new St.Entry({
-			text: this._rgbaToHex(initialColor),
-			style: 'width: 180px;',
-			hint_text: '#123456'
-		});
-		
-		let colorPicker = {
-			selectedColor: initialColor,
-			previewBox: previewBox,
-			hexEntry: hexEntry,
-			_hexToRgba: function(hex) {
-				let r = parseInt(hex.substr(1, 2), 16);
-				let g = parseInt(hex.substr(3, 2), 16);
-				let b = parseInt(hex.substr(5, 2), 16);
-				return 'rgba(' + r + ', ' + g + ', ' + b + ', 1.0)';
-			}
-		};
-		
-		hexEntry.clutter_text.connect('text-changed', function() {
-			let hexText = hexEntry.get_text().trim();
-			if (/^#[0-9A-Fa-f]{6}$/.test(hexText)) {
-				colorPicker.selectedColor = colorPicker._hexToRgba(hexText);
-				previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + hexText + ';');
-			}
-		});
-		
-		hexBox.add(hexLabel, { expand: false });
-		hexBox.add(hexEntry, { expand: true });
-		
-		box.add(hexBox, { x_fill: true, y_fill: false });
-		
-		let colorGrid = new St.BoxLayout({
-			style: 'padding-top: 10px; spacing: 5px;',
-			vertical: true
-		});
-		
-		let stockColors = [
-			['#000000', '#1a1a1a', '#333333', '#4d4d4d', '#666666'],
-			['#e74c3c', '#e67e22', '#f39c12', '#f1c40f', '#2ecc71'],
-			['#3498db', '#9b59b6', '#1abc9c', '#16a085', '#27ae60']
-		];
-		
-		stockColors.forEach(row => {
-			let rowBox = new St.BoxLayout({
-				style: 'spacing: 5px;'
-			});
-			
-			row.forEach(color => {
-				let colorBtn = new St.Button({
-					style: 'width: 80px; height: 40px; background-color: ' + color + '; border-radius: 4px; border: 2px solid #666;'
-				});
-				
-				colorBtn.connect('clicked', function() {
-					colorPicker.selectedColor = colorPicker._hexToRgba(color);
-					previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + color + ';');
-					hexEntry.set_text(color);
-				});
-				
-				rowBox.add(colorBtn, { expand: true });
-			});
-			
-			colorGrid.add(rowBox, { x_fill: true, y_fill: false });
-		});
-		
-		box.add(colorGrid, { x_fill: true, y_fill: false });
-		
-		this.contentBox.add(box, {
-			x_fill: true,
-			y_fill: false
-		});
-		
-		return colorPicker;
-	}
+    _addColorButton(labelText, initialColor) {
+        let box = new St.BoxLayout({
+            style: 'padding: 8px 20px 8px 5px;',
+            vertical: true
+        });
+        
+        let topBox = new St.BoxLayout({
+            vertical: false
+        });
+        
+        let label = new St.Label({
+            text: labelText,
+            y_align: Clutter.ActorAlign.CENTER
+        });
+        
+        topBox.add(label, { expand: true });
+        
+        let previewBox = new St.Bin({
+            style: 'width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + this._rgbaToHex(initialColor) + ';',
+            x_align: St.Align.END
+        });
+        
+        topBox.add(previewBox, { expand: false });
+        
+        box.add(topBox, { x_fill: true, y_fill: false });
+        
+        let hexBox = new St.BoxLayout({
+            style: 'padding-top: 10px;',
+            vertical: false
+        });
+        
+        let hexLabel = new St.Label({
+            text: 'Hex color:',
+            y_align: Clutter.ActorAlign.CENTER,
+            style: 'padding-right: 10px;'
+        });
+        
+        let hexEntry = new St.Entry({
+            text: this._rgbaToHex(initialColor),
+            style: 'width: 180px; background-color: #1a1a1a; border: 2px solid #4a90d9; border-radius: 4px; padding: 6px 10px; color: #ffffff; font-family: monospace;',
+            hint_text: 'Type hex color'
+        });
+        
+        let colorPicker = {
+            selectedColor: initialColor,
+            previewBox: previewBox,
+            hexEntry: hexEntry,
+            _hexToRgba: function(hex) {
+                let r = parseInt(hex.substr(1, 2), 16);
+                let g = parseInt(hex.substr(3, 2), 16);
+                let b = parseInt(hex.substr(5, 2), 16);
+                return 'rgba(' + r + ', ' + g + ', ' + b + ', 1.0)';
+            }
+        };
+        
+        hexEntry.clutter_text.connect('text-changed', function() {
+            let hexText = hexEntry.get_text().trim();
+            if (/^#[0-9A-Fa-f]{6}$/.test(hexText)) {
+                colorPicker.selectedColor = colorPicker._hexToRgba(hexText);
+                previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + hexText + ';');
+            }
+        });
+        
+        hexBox.add(hexLabel, { expand: false });
+        hexBox.add(hexEntry, { expand: true });
+        
+        box.add(hexBox, { x_fill: true, y_fill: false });
+        
+        let colorGrid = new St.BoxLayout({
+            style: 'padding-top: 10px; spacing: 5px;',
+            vertical: true
+        });
+        
+        let stockColors = [
+            ['#000000', '#1a1a1a', '#333333', '#4d4d4d', '#666666'],
+            ['#e74c3c', '#e67e22', '#f39c12', '#f1c40f', '#2ecc71'],
+            ['#3498db', '#9b59b6', '#1abc9c', '#16a085', '#27ae60']
+        ];
+        
+        stockColors.forEach(row => {
+            let rowBox = new St.BoxLayout({
+                style: 'spacing: 5px;'
+            });
+            
+            row.forEach(color => {
+                let colorBtn = new St.Button({
+                    style: 'width: 80px; height: 40px; background-color: ' + color + '; border-radius: 4px; border: 2px solid #666;'
+                });
+                
+                colorBtn.connect('clicked', function() {
+                    colorPicker.selectedColor = colorPicker._hexToRgba(color);
+                    previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + color + ';');
+                    hexEntry.set_text(color);
+                });
+                
+                rowBox.add(colorBtn, { expand: true });
+            });
+            
+            colorGrid.add(rowBox, { x_fill: true, y_fill: false });
+        });
+        
+        box.add(colorGrid, { x_fill: true, y_fill: false });
+        
+        this.contentBox.add(box, {
+            x_fill: true,
+            y_fill: false
+        });
+        
+        return colorPicker;
+    }
 
-	_rgbaToHex(rgba) {
-		let match = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
-		if (!match) return '#1e1e1e';
-		
-		let r = parseInt(match[1]).toString(16).padStart(2, '0');
-		let g = parseInt(match[2]).toString(16).padStart(2, '0');
-		let b = parseInt(match[3]).toString(16).padStart(2, '0');
-		
-		return '#' + r + g + b;
-	}
+    _rgbaToHex(rgba) {
+        let match = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (!match) return '#1e1e1e';
+        
+        let r = parseInt(match[1]).toString(16).padStart(2, '0');
+        let g = parseInt(match[2]).toString(16).padStart(2, '0');
+        let b = parseInt(match[3]).toString(16).padStart(2, '0');
+        
+        return '#' + r + g + b;
+    }
 
-	_gatherSettings() {
-		return {
-			enabled: this.enabledSwitch.checked,
-			transparency: this.transparencySlider._value,
-			heightOffset: this.heightOffsetSlider._value,
-			autoHide: this.autoHideSwitch.checked,
-			hoverPixels: this.hoverPixelsSlider._value,
-			noWindowShift: this.noWindowShiftSwitch.checked,
-			animationTime: this.animationTimeSlider._value,
-			showOnNoFocus: this.showOnNoFocusSwitch.checked,
-			zoomFactor: this.zoomFactorSlider._value,
-			zoomEnabled: this.zoomEnabledSwitch.checked,
-			indicatorColor: this.indicatorColorButton.selectedColor,
-			showIndicator: this.showIndicatorSwitch.checked,
-			hideDelay: this.hideDelaySlider._value
-		};
-	}
+    _gatherSettings() {
+        return {
+            enabled: this.enabledSwitch.checked,
+            transparency: this.transparencySlider._value,
+            heightOffset: this.heightOffsetSlider._value,
+            autoHide: this.autoHideSwitch.checked,
+            hoverPixels: this.hoverPixelsSlider._value,
+            noWindowShift: this.noWindowShiftSwitch.checked,
+            animationTime: this.animationTimeSlider._value,
+            showOnNoFocus: this.showOnNoFocusSwitch.checked,
+            zoomFactor: this.zoomFactorSlider._value,
+            zoomEnabled: this.zoomEnabledSwitch.checked,
+            indicatorColor: this.indicatorColorButton.selectedColor,
+            showIndicator: this.showIndicatorSwitch.checked,
+            hideDelay: this.hideDelaySlider._value
+        };
+    }
     
     _onCancel() {
         this.dialog.close();
@@ -535,7 +538,7 @@ class PanelSettingsDialog {
         cleanupAllPanels();
         Mainloop.timeout_add(100, function() {
             initializePanels();
-			addPanelMenuItems();
+            addPanelMenuItems();
             return false;
         });
     }
@@ -650,7 +653,7 @@ function getPanelSettings(panelId) {
         autoHide: true,
         hoverPixels: 8,
         noWindowShift: true,
-        animationTime: 200,
+        animationTime: 500,
         showOnNoFocus: true,
         zoomFactor: 1.3,
         zoomEnabled: true,
@@ -801,11 +804,11 @@ function cleanupAllPanels() {
         global.display.disconnect(windowCreatedSignal);
         windowCreatedSignal = null;
     }
-	
-	if (panelAddedSignal) {
-		Main.panelManager.disconnect(panelAddedSignal);
-		panelAddedSignal = null;
-	}
+    
+    if (panelAddedSignal) {
+        Main.panelManager.disconnect(panelAddedSignal);
+        panelAddedSignal = null;
+    }
     
     Main.panelManager.panels.forEach(panel => {
         let state = panelStates[panel.panelId];
@@ -1026,7 +1029,8 @@ function initPanel(panel) {
         zoomLeaveId: null,
         indicator: null,
         hideDelayTimeout: null,
-        animationTimer: null
+        animationTimer: null,
+        isAnimating: false
     };
     
     let state = panelStates[panel.panelId];
@@ -1037,6 +1041,9 @@ function initPanel(panel) {
     
     state.styleSignal = panel.actor.connect('style-changed', function() {
         if (isInEditMode) return;
+        
+        let state = panelStates[panel.panelId];
+        if (state && state.isAnimating) return;
         
         Mainloop.timeout_add(10, function() {
             applyStyle(panel);
@@ -2012,6 +2019,10 @@ function checkAndApplyStyle(panel, forceApply) {
         let contentWidth = leftWidth + centerWidth + rightWidth;
         newWidth = Math.max(contentWidth + (panelPadding * 2), 200);
         newHeight = state.lastHeight;
+        
+        if (newWidth !== state.lastWidth) {
+            global.log(`[CenteredDock] Panel ${panel.panelId} width change: ${state.lastWidth} -> ${newWidth}`);
+        }
     } else if (state.location === "left" || state.location === "right") {
         let [minHeight, leftHeight] = panel._leftBox.get_preferred_height(-1);
         let [minHeight2, centerHeight] = panel._centerBox.get_preferred_height(-1);
@@ -2027,9 +2038,13 @@ function checkAndApplyStyle(panel, forceApply) {
         
         newHeight = Math.max(contentHeight + (panelPadding * 2), 40);
         newWidth = Math.max(contentWidth + (panelPadding * 2), 40);
+        
+        if (newHeight !== state.lastHeight) {
+            global.log(`[CenteredDock] Panel ${panel.panelId} height change: ${state.lastHeight} -> ${newHeight}`);
+        }
     }
 
-    if (newWidth !== state.lastWidth || newHeight !== state.lastHeight || forceApply) {
+    if ((newWidth !== state.lastWidth || newHeight !== state.lastHeight || forceApply) && !state.isAnimating) {
         state.lastWidth = newWidth;
         state.lastHeight = newHeight;
         applyStyle(panel, forceApply);
@@ -2056,17 +2071,66 @@ function applyStyle(panel, forceApply) {
     
     if (state.location === "bottom" || state.location === "top") {
         let adjustedOffset = state.location === "top" ? -heightOffset : heightOffset;
-        let margin = (monitor.width - state.lastWidth) / 2;
+        let desiredMargin = (monitor.width - state.lastWidth) / 2;
         
-        panel.actor.set_style(
-            'border-radius: 12px;' +
-            'padding: 0px ' + panelPadding + 'px;' +
-            'margin-left: ' + margin + 'px;' +
-            'margin-right: ' + margin + 'px;' +
-            'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
-            'opacity: ' + transparency + ';'
-        );
-        panel.actor.opacity = savedOpacity;
+        let sizeDiff = Math.abs(state.previousWidth - state.lastWidth);
+        
+        if (sizeDiff > 5 && !state.isHiding && !state.isShowing && state.previousWidth > 0) {
+            state.isAnimating = true;
+            let startMargin = (monitor.width - state.previousWidth) / 2;
+            let endMargin = desiredMargin;
+            let startTime = Date.now();
+            let duration = 200;
+            
+            if (state.marginAnimationTimer) {
+                Mainloop.source_remove(state.marginAnimationTimer);
+            }
+            
+            state.marginAnimationTimer = Mainloop.timeout_add(16, function() {
+                let elapsed = Date.now() - startTime;
+                let progress = Math.min(elapsed / duration, 1.0);
+                let eased = 1 - Math.pow(1 - progress, 3);
+                
+                let currentMargin = startMargin + (endMargin - startMargin) * eased;
+                
+                panel.actor.set_style(
+                    'border-radius: 12px;' +
+                    'padding: 0px ' + panelPadding + 'px;' +
+                    'margin-left: ' + currentMargin + 'px;' +
+                    'margin-right: ' + currentMargin + 'px;' +
+                    'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
+                    'opacity: ' + transparency + ';'
+                );
+                panel.actor.opacity = savedOpacity;
+                
+                let targetY = state.originalY + adjustedOffset;
+                if (panel.actor.y !== targetY) {
+                    panel.actor.y = targetY;
+                }
+                if (panel.actor.x !== state.originalX) {
+                    panel.actor.x = state.originalX;
+                }
+                
+                if (progress >= 1.0) {
+                    state.marginAnimationTimer = null;
+                    state.previousWidth = state.lastWidth;
+                    state.isAnimating = false;
+                    return false;
+                }
+                return true;
+            });
+        } else {
+            panel.actor.set_style(
+                'border-radius: 12px;' +
+                'padding: 0px ' + panelPadding + 'px;' +
+                'margin-left: ' + desiredMargin + 'px;' +
+                'margin-right: ' + desiredMargin + 'px;' +
+                'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
+                'opacity: ' + transparency + ';'
+            );
+            panel.actor.opacity = savedOpacity;
+            state.previousWidth = state.lastWidth;
+        }
         
         let targetY = state.originalY + adjustedOffset;
         if (panel.actor.y !== targetY) {
@@ -2075,54 +2139,103 @@ function applyStyle(panel, forceApply) {
         if (panel.actor.x !== state.originalX) {
             panel.actor.x = state.originalX;
         }
-	} else if (state.location === "left" || state.location === "right") {
-		let adjustedOffset = state.location === "left" ? -heightOffset : heightOffset;
-		
-		let usableHeight = monitor.height;
-		let usableTopOffset = 0;
-		
-		Main.panelManager.panels.forEach(otherPanel => {
-			if (otherPanel === panel) return;
-			let otherLocation = getPanelLocation(otherPanel);
-			let otherMonitor = Main.layoutManager.findMonitorForActor(otherPanel.actor);
-			let thisMonitor = Main.layoutManager.findMonitorForActor(panel.actor);
-			if (!otherMonitor || !thisMonitor || otherMonitor !== thisMonitor) return;
-			
-			let otherPanelId = getPanelIdentifier(otherPanel);
-			let otherSettings = getPanelSettings(otherPanelId);
-			
-			if (otherLocation === "top") {
-				usableTopOffset = otherPanel.actor.height;
-				usableHeight -= otherPanel.actor.height;
-			} else if (otherLocation === "bottom") {
-				usableHeight -= otherPanel.actor.height;
-			}
-		});
-		
-		if (forceApply) {
-			let margin = (usableHeight - state.lastHeight) / 2;
-		}
-		
-		let margin = (usableHeight - state.lastHeight) / 2;
-		
-		panel.actor.set_style(
-			'border-radius: 12px;' +
-			'padding: ' + panelPadding + 'px 0px;' +
-			'margin-top: ' + (margin + usableTopOffset) + 'px;' +
-			'margin-bottom: ' + margin + 'px;' +
-			'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
-			'opacity: ' + transparency + ';'
-		);
-		panel.actor.opacity = savedOpacity;
-		
-		let targetX = state.originalX + adjustedOffset;
-		if (panel.actor.x !== targetX) {
-			panel.actor.x = targetX;
-		}
-		if (panel.actor.y !== state.originalY) {
-			panel.actor.y = state.originalY;
-		}
-	}
+    } else if (state.location === "left" || state.location === "right") {
+        let adjustedOffset = state.location === "left" ? -heightOffset : heightOffset;
+        
+        let usableHeight = monitor.height;
+        let usableTopOffset = 0;
+        
+        Main.panelManager.panels.forEach(otherPanel => {
+            if (otherPanel === panel) return;
+            let otherLocation = getPanelLocation(otherPanel);
+            let otherMonitor = Main.layoutManager.findMonitorForActor(otherPanel.actor);
+            let thisMonitor = Main.layoutManager.findMonitorForActor(panel.actor);
+            if (!otherMonitor || !thisMonitor || otherMonitor !== thisMonitor) return;
+            
+            let otherPanelId = getPanelIdentifier(otherPanel);
+            let otherSettings = getPanelSettings(otherPanelId);
+            
+            if (otherLocation === "top") {
+                usableTopOffset = otherPanel.actor.height;
+                usableHeight -= otherPanel.actor.height;
+            } else if (otherLocation === "bottom") {
+                usableHeight -= otherPanel.actor.height;
+            }
+        });
+        
+        if (forceApply) {
+            let margin = (usableHeight - state.lastHeight) / 2;
+        }
+        
+        let desiredMargin = (usableHeight - state.lastHeight) / 2;
+        
+        let sizeDiff = Math.abs(state.previousHeight - state.lastHeight);
+        
+        if (sizeDiff > 5 && !state.isHiding && !state.isShowing && state.previousHeight > 0) {
+            state.isAnimating = true;
+            let startMargin = (usableHeight - state.previousHeight) / 2;
+            let endMargin = desiredMargin;
+            let startTime = Date.now();
+            let duration = 200;
+            
+            if (state.marginAnimationTimer) {
+                Mainloop.source_remove(state.marginAnimationTimer);
+            }
+            
+            state.marginAnimationTimer = Mainloop.timeout_add(16, function() {
+                let elapsed = Date.now() - startTime;
+                let progress = Math.min(elapsed / duration, 1.0);
+                let eased = 1 - Math.pow(1 - progress, 3);
+                
+                let currentMargin = startMargin + (endMargin - startMargin) * eased;
+                
+                panel.actor.set_style(
+                    'border-radius: 12px;' +
+                    'padding: ' + panelPadding + 'px 0px;' +
+                    'margin-top: ' + (currentMargin + usableTopOffset) + 'px;' +
+                    'margin-bottom: ' + currentMargin + 'px;' +
+                    'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
+                    'opacity: ' + transparency + ';'
+                );
+                panel.actor.opacity = savedOpacity;
+                
+                let targetX = state.originalX + adjustedOffset;
+                if (panel.actor.x !== targetX) {
+                    panel.actor.x = targetX;
+                }
+                if (panel.actor.y !== state.originalY) {
+                    panel.actor.y = state.originalY;
+                }
+                
+                if (progress >= 1.0) {
+                    state.marginAnimationTimer = null;
+                    state.previousHeight = state.lastHeight;
+                    state.isAnimating = false;
+                    return false;
+                }
+                return true;
+            });
+        } else {
+            panel.actor.set_style(
+                'border-radius: 12px;' +
+                'padding: ' + panelPadding + 'px 0px;' +
+                'margin-top: ' + (desiredMargin + usableTopOffset) + 'px;' +
+                'margin-bottom: ' + desiredMargin + 'px;' +
+                'box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);' +
+                'opacity: ' + transparency + ';'
+            );
+            panel.actor.opacity = savedOpacity;
+            state.previousHeight = state.lastHeight;
+        }
+        
+        let targetX = state.originalX + adjustedOffset;
+        if (panel.actor.x !== targetX) {
+            panel.actor.x = targetX;
+        }
+        if (panel.actor.y !== state.originalY) {
+            panel.actor.y = state.originalY;
+        }
+    }
 }
 
 function applyStyleToAll() {
