@@ -772,93 +772,6 @@ function exitEditMode() {
     });
 }
 
-function cleanupAllPanels() {
-    disableAutoHide();
-
-    if (displayStateSignal) {
-        Main.layoutManager.disconnect(displayStateSignal);
-        displayStateSignal = null;
-    }
-
-    if (sizeCheckTimeout) {
-        Mainloop.source_remove(sizeCheckTimeout);
-        sizeCheckTimeout = null;
-    }
-    
-    if (workspaceSignal) {
-        global.screen.disconnect(workspaceSignal);
-        workspaceSignal = null;
-    }
-    
-    if (actorAddedSignal) {
-        global.stage.disconnect(actorAddedSignal);
-        actorAddedSignal = null;
-    }
-    
-    if (editModeSignal) {
-        global.settings.disconnect(editModeSignal);
-        editModeSignal = null;
-    }
-    
-    if (windowCreatedSignal) {
-        global.display.disconnect(windowCreatedSignal);
-        windowCreatedSignal = null;
-    }
-    
-    if (panelAddedSignal) {
-        Main.panelManager.disconnect(panelAddedSignal);
-        panelAddedSignal = null;
-    }
-    
-    Main.panelManager.panels.forEach(panel => {
-        let state = panelStates[panel.panelId];
-        
-        Tweener.removeTweens(panel.actor);
-        
-        if (state) {
-            destroyIndicator(panel);
-            
-            if (state.hideDelayTimeout) {
-                Mainloop.source_remove(state.hideDelayTimeout);
-                state.hideDelayTimeout = null;
-            }
-            
-            if (state.animationTimer) {
-                Mainloop.source_remove(state.animationTimer);
-                state.animationTimer = null;
-            }
-            
-            if (state.styleSignal !== null && state.styleSignal !== undefined) {
-                try {
-                    panel.actor.disconnect(state.styleSignal);
-                } catch(e) {}
-                state.styleSignal = null;
-            }
-
-            if (state.showSignal !== null && state.showSignal !== undefined) {
-                try {
-                    panel.actor.disconnect(state.showSignal);
-                } catch(e) {}
-                state.showSignal = null;
-            }
-            
-            cleanupAppletZoom(panel);
-            
-            panel.actor.y = state.originalY;
-        }
-        
-        panel.actor.set_scale(1.0, 1.0);
-        panel.actor.set_style('');
-        panel.actor.opacity = 255;
-        panel.actor.show();
-        Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: true });
-    });
-    
-    removePanelMenuItems();
-    
-    panelStates = {};
-}
-
 function initializePanels() {
     Main.panelManager.panels.forEach(panel => {
         if (shouldApplyToPanel(panel)) {
@@ -910,7 +823,6 @@ function initializePanels() {
                     state.isHidden = false;
                     state.isHiding = false;
                     state.isShowing = false;
-                    state.lastWidth = 0;
                     panel.actor.opacity = 0;
                     panel.actor.show();
                     
@@ -1030,7 +942,10 @@ function initPanel(panel) {
         indicator: null,
         hideDelayTimeout: null,
         animationTimer: null,
-        isAnimating: false
+        isAnimating: false,
+        allocateId: null,
+        originalAllocate: null,
+        allocationId: null
     };
     
     let state = panelStates[panel.panelId];
@@ -1038,6 +953,23 @@ function initPanel(panel) {
     if (getPanelSetting(panel, "noWindowShift")) {
         Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: false });
     }
+    
+    state.allocationId = panel.actor.connect('notify::allocation', function() {
+        let heightOffset = getPanelSetting(panel, "heightOffset");
+        if (state.location === "bottom" || state.location === "top") {
+            let adjustedOffset = state.location === 'top' ? -heightOffset : heightOffset;
+            let targetY = state.originalY + adjustedOffset;
+            if (panel.actor.y !== targetY) {
+                panel.actor.y = targetY;
+            }
+        } else {
+            let adjustedOffset = state.location === 'left' ? -heightOffset : heightOffset;
+            let targetX = state.originalX + adjustedOffset;
+            if (panel.actor.x !== targetX) {
+                panel.actor.x = targetX;
+            }
+        }
+    });
     
     state.styleSignal = panel.actor.connect('style-changed', function() {
         if (isInEditMode) return;
@@ -1060,6 +992,107 @@ function initPanel(panel) {
             state.isHidden = false;
         }
     });
+}
+
+function cleanupAllPanels() {
+    disableAutoHide();
+
+    if (displayStateSignal) {
+        Main.layoutManager.disconnect(displayStateSignal);
+        displayStateSignal = null;
+    }
+
+    if (sizeCheckTimeout) {
+        Mainloop.source_remove(sizeCheckTimeout);
+        sizeCheckTimeout = null;
+    }
+    
+    if (workspaceSignal) {
+        global.screen.disconnect(workspaceSignal);
+        workspaceSignal = null;
+    }
+    
+    if (actorAddedSignal) {
+        global.stage.disconnect(actorAddedSignal);
+        actorAddedSignal = null;
+    }
+    
+    if (editModeSignal) {
+        global.settings.disconnect(editModeSignal);
+        editModeSignal = null;
+    }
+    
+    if (windowCreatedSignal) {
+        global.display.disconnect(windowCreatedSignal);
+        windowCreatedSignal = null;
+    }
+    
+    if (panelAddedSignal) {
+        Main.panelManager.disconnect(panelAddedSignal);
+        panelAddedSignal = null;
+    }
+    
+    Main.panelManager.panels.forEach(panel => {
+        let state = panelStates[panel.panelId];
+        
+        Tweener.removeTweens(panel.actor);
+        
+        if (state) {
+            destroyIndicator(panel);
+            
+            if (state.hideDelayTimeout) {
+                Mainloop.source_remove(state.hideDelayTimeout);
+                state.hideDelayTimeout = null;
+            }
+            
+            if (state.animationTimer) {
+                Mainloop.source_remove(state.animationTimer);
+                state.animationTimer = null;
+            }
+            
+            if (state.styleSignal !== null && state.styleSignal !== undefined) {
+                try {
+                    panel.actor.disconnect(state.styleSignal);
+                } catch(e) {}
+                state.styleSignal = null;
+            }
+
+            if (state.showSignal !== null && state.showSignal !== undefined) {
+                try {
+                    panel.actor.disconnect(state.showSignal);
+                } catch(e) {}
+                state.showSignal = null;
+            }
+            
+            if (state.allocateId !== null && state.allocateId !== undefined) {
+                try {
+                    panel.actor.disconnect(state.allocateId);
+                } catch(e) {}
+                state.allocateId = null;
+            }
+            
+            if (state.allocationId !== null && state.allocationId !== undefined) {
+                try {
+                    panel.actor.disconnect(state.allocationId);
+                } catch(e) {}
+                state.allocationId = null;
+            }
+            
+            cleanupAppletZoom(panel);
+            
+            panel.actor.y = state.originalY;
+        }
+        
+        panel.actor.set_scale(1.0, 1.0);
+        panel.actor.set_style('');
+        panel.actor.opacity = 255;
+        panel.actor.show();
+        Main.layoutManager._chrome.modifyActorParams(panel.actor, { affectsStruts: true });
+    });
+    
+    removePanelMenuItems();
+    
+    panelStates = {};
 }
 
 function setupAppletZoom(panel) {
@@ -2065,6 +2098,19 @@ function applyStyle(panel, forceApply) {
     let heightOffset = getPanelSetting(panel, "heightOffset");
     let monitor = getMonitorGeometry(panel);
     
+    // Debug: track position changes
+    if (state.location === "bottom" || state.location === "top") {
+        let expectedY = state.originalY + (state.location === 'top' ? -heightOffset : heightOffset);
+        if (panel.actor.y !== expectedY) {
+            global.log(`[CenteredDock] Panel ${panel.panelId} Y changed: expected=${expectedY}, actual=${panel.actor.y}, diff=${panel.actor.y - expectedY}`);
+        }
+    } else if (state.location === "left" || state.location === "right") {
+        let expectedX = state.originalX + (state.location === 'left' ? -heightOffset : heightOffset);
+        if (panel.actor.x !== expectedX) {
+            global.log(`[CenteredDock] Panel ${panel.panelId} X changed: expected=${expectedX}, actual=${panel.actor.x}, diff=${panel.actor.x - expectedX}`);
+        }
+    }
+    
     let savedOpacity = state.isHidden ? 0 : panel.actor.opacity;
     
     let panelPadding = 20;
@@ -2110,6 +2156,7 @@ function applyStyle(panel, forceApply) {
                 if (panel.actor.x !== state.originalX) {
                     panel.actor.x = state.originalX;
                 }
+                panel.actor.fixed_position_set = true;
                 
                 if (progress >= 1.0) {
                     state.marginAnimationTimer = null;
@@ -2139,6 +2186,7 @@ function applyStyle(panel, forceApply) {
         if (panel.actor.x !== state.originalX) {
             panel.actor.x = state.originalX;
         }
+        panel.actor.fixed_position_set = true;
     } else if (state.location === "left" || state.location === "right") {
         let adjustedOffset = state.location === "left" ? -heightOffset : heightOffset;
         
@@ -2206,6 +2254,7 @@ function applyStyle(panel, forceApply) {
                 if (panel.actor.y !== state.originalY) {
                     panel.actor.y = state.originalY;
                 }
+                panel.actor.fixed_position_set = true;
                 
                 if (progress >= 1.0) {
                     state.marginAnimationTimer = null;
@@ -2235,6 +2284,7 @@ function applyStyle(panel, forceApply) {
         if (panel.actor.y !== state.originalY) {
             panel.actor.y = state.originalY;
         }
+        panel.actor.fixed_position_set = true;
     }
 }
 
