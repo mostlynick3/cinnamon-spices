@@ -9,6 +9,14 @@ const St = imports.gi.St;
 const ModalDialog = imports.ui.modalDialog;
 const Gtk = imports.gi.Gtk;
 const Gdk = imports.gi.Gdk;
+const UUID = "centered-cinnamon-dock@mostlynick3";
+const GLib = imports.gi.GLib;
+const Gettext = imports.gettext;
+Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
+
+function _(str) {
+    return Gettext.dgettext(UUID, str);
+}
 
 let globalSettings;
 let panelStates = {};
@@ -49,8 +57,19 @@ class PanelSettingsDialog {
         
         this.dialog = new ModalDialog.ModalDialog();
         
+        let locationName;
+        if (this.location === "bottom") {
+            locationName = _("Bottom Panel (Monitor %d)").replace("%d", monitorIndex);
+        } else if (this.location === "top") {
+            locationName = _("Top Panel (Monitor %d)").replace("%d", monitorIndex);
+        } else if (this.location === "left") {
+            locationName = _("Left Panel (Monitor %d)").replace("%d", monitorIndex);
+        } else if (this.location === "right") {
+            locationName = _("Right Panel (Monitor %d)").replace("%d", monitorIndex);
+        }
+        
         let title = new St.Label({
-            text: `Centered Dock Settings\n${this.location.charAt(0).toUpperCase() + this.location.slice(1)} Panel (Monitor ${monitorIndex})`,
+            text: _("Centered Dock Settings") + "\n" + locationName,
             style: 'font-size: 14pt; font-weight: bold; padding: 10px;'
         });
         this.dialog.contentLayout.add(title);
@@ -73,16 +92,16 @@ class PanelSettingsDialog {
         
         this.dialog.setButtons([
             {
-                label: 'Cancel',
+                label: _('Cancel'),
                 action: this._onCancel.bind(this),
                 key: Clutter.KEY_Escape
             },
             {
-                label: 'Apply',
+                label: _('Apply'),
                 action: this._onApply.bind(this)
             },
             {
-                label: 'OK',
+                label: _('OK'),
                 action: this._onOK.bind(this),
                 key: Clutter.KEY_Return
             }
@@ -90,17 +109,17 @@ class PanelSettingsDialog {
     }
 
     _buildSettings() {
-        this._addHeader('General');
+        this._addHeader(_('General'));
         
         this.enabledSwitch = this._addSwitch(
-            'Enable Centered Dock for this panel',
+            _('Enable Centered Dock for this panel'),
             this.settings.enabled
         );
         
         this._addSeparator();
         
         this.heightOffsetSlider = this._addSlider(
-            'Height offset (negative = up, positive = down)',
+            _('Height offset (negative = up, positive = down)'),
             this.settings.heightOffset,
             -500,
             500,
@@ -108,22 +127,22 @@ class PanelSettingsDialog {
         );
         
         this.noWindowShiftSwitch = this._addSwitch(
-            "Don't shift windows (disable panel struts)",
+            _("Don't shift windows (disable panel struts)"),
             this.settings.noWindowShift
         );
         
         this.animationTimeSlider = this._addSlider(
-            'Fade animation duration (ms)',
+            _('Fade animation duration (ms)'),
             this.settings.animationTime,
             0,
             1000,
             50
         );
         
-        this._addHeader('Appearance');
+        this._addHeader(_('Appearance'));
         
         this.transparencySlider = this._addSlider(
-            'Transparency (%)',
+            _('Transparency (%)'),
             this.settings.transparency,
             0,
             100,
@@ -131,32 +150,32 @@ class PanelSettingsDialog {
         );
         
         this.zoomEnabledSwitch = this._addSwitch(
-            'Enable zoom effect on hover',
+            _('Enable zoom effect on hover'),
             this.settings.zoomEnabled
         );
         
         this.zoomFactorSlider = this._addSlider(
-            'Zoom scale factor',
+            _('Zoom scale factor'),
             this.settings.zoomFactor,
             1.0,
             2.0,
             0.1
         );
         
-        this._addHeader('Auto-hide Behavior');
+        this._addHeader(_('Auto-hide Behavior'));
         
         this.autoHideSwitch = this._addSwitch(
-            'Auto-hide dock when focusing apps',
+            _('Auto-hide dock when focusing apps'),
             this.settings.autoHide
         );
         
         this.showOnNoFocusSwitch = this._addSwitch(
-            'Show dock when no window is focused',
+            _('Show dock when no window is focused'),
             this.settings.showOnNoFocus
         );
         
         this.hideDelaySlider = this._addSlider(
-            'Delay before auto-hiding (ms)',
+            _('Delay before auto-hiding (ms)'),
             this.settings.hideDelay,
             0,
             5000,
@@ -164,7 +183,7 @@ class PanelSettingsDialog {
         );
         
         this.hoverPixelsSlider = this._addSlider(
-            'Height of trigger zone to show panel (px)',
+            _('Height of trigger zone to show panel (px)'),
             this.settings.hoverPixels,
             1,
             100,
@@ -172,16 +191,16 @@ class PanelSettingsDialog {
         );
         
         this.showIndicatorSwitch = this._addSwitch(
-            'Show indicator of dock location in trigger zone',
+            _('Show indicator of dock location in trigger zone'),
             this.settings.showIndicator
         );
         
         this.indicatorColorButton = this._addColorButton(
-            'Indicator color',
+            _('Indicator color'),
             this.settings.indicatorColor
         );
     }
-    
+
     _addHeader(text) {
         let header = new St.Label({
             text: text,
@@ -419,7 +438,7 @@ class PanelSettingsDialog {
         });
         
         let hexLabel = new St.Label({
-            text: 'Hex color:',
+            text: _('Hex color:'),
             y_align: Clutter.ActorAlign.CENTER,
             style: 'padding-right: 10px;'
         });
@@ -427,7 +446,7 @@ class PanelSettingsDialog {
         let hexEntry = new St.Entry({
             text: this._rgbaToHex(initialColor),
             style: 'width: 180px; background-color: #1a1a1a; border: 2px solid #4a90d9; border-radius: 4px; padding: 6px 10px; color: #ffffff; font-family: monospace;',
-            hint_text: 'Type hex color'
+            hint_text: _('Type hex color')
         });
         
         let colorPicker = {
@@ -681,7 +700,7 @@ function addPanelMenuItem(panel) {
     let separator = new PopupMenu.PopupSeparatorMenuItem();
     panel._context_menu.addMenuItem(separator);
     
-    let menuItem = new PopupMenu.PopupMenuItem("Centered Dock Settings");
+    let menuItem = new PopupMenu.PopupMenuItem(_("Centered Dock Settings"));
     menuItem.connect('activate', function() {
         openPanelSettingsDialog(panel);
     });
@@ -1765,6 +1784,16 @@ function hidePanel(panel) {
         return;
     }
     
+    function hideTooltips(actor) {
+        if (actor.toString().includes('StLabel "Tooltip"') && actor.visible) {
+            actor.hide();
+        }
+        if (actor.get_children) {
+            actor.get_children().forEach(child => hideTooltips(child));
+        }
+    }
+    hideTooltips(global.stage);
+    
     resetAllAppletZoom(panel);
     
     if (state.animationTimer) {
@@ -2008,8 +2037,15 @@ function startSizeMonitoring() {
         Main.panelManager.panels.forEach(panel => {
             if (shouldApplyToPanel(panel)) {
                 let state = panelStates[panel.panelId];
-                if (state && !state.isHidden) {
-                    checkAndApplyStyle(panel, true);
+                if (state) {
+                    if (!state.isHidden && (panel.actor.scale_x === 0.0 || panel.actor.scale_y === 0.0)) {
+                        global.log(`[CenteredDock] INCONSISTENT STATE DETECTED for panel ${panel.panelId}: isHidden=${state.isHidden}, scale=${panel.actor.scale_x},${panel.actor.scale_y}, opacity=${panel.actor.opacity}, isHiding=${state.isHiding}, isShowing=${state.isShowing}`);
+                        showPanel(panel);
+                    }
+                    
+                    if (!state.isHidden) {
+                        checkAndApplyStyle(panel, true);
+                    }
                 }
             }
         });
@@ -2052,10 +2088,6 @@ function checkAndApplyStyle(panel, forceApply) {
         let contentWidth = leftWidth + centerWidth + rightWidth;
         newWidth = Math.max(contentWidth + (panelPadding * 2), 200);
         newHeight = state.lastHeight;
-        
-        if (newWidth !== state.lastWidth) {
-            global.log(`[CenteredDock] Panel ${panel.panelId} width change: ${state.lastWidth} -> ${newWidth}`);
-        }
     } else if (state.location === "left" || state.location === "right") {
         let [minHeight, leftHeight] = panel._leftBox.get_preferred_height(-1);
         let [minHeight2, centerHeight] = panel._centerBox.get_preferred_height(-1);
@@ -2071,10 +2103,6 @@ function checkAndApplyStyle(panel, forceApply) {
         
         newHeight = Math.max(contentHeight + (panelPadding * 2), 40);
         newWidth = Math.max(contentWidth + (panelPadding * 2), 40);
-        
-        if (newHeight !== state.lastHeight) {
-            global.log(`[CenteredDock] Panel ${panel.panelId} height change: ${state.lastHeight} -> ${newHeight}`);
-        }
     }
 
     if ((newWidth !== state.lastWidth || newHeight !== state.lastHeight || forceApply) && !state.isAnimating) {
@@ -2097,19 +2125,6 @@ function applyStyle(panel, forceApply) {
     let transparency = getPanelSetting(panel, "transparency") / 100.0;
     let heightOffset = getPanelSetting(panel, "heightOffset");
     let monitor = getMonitorGeometry(panel);
-    
-    // Debug: track position changes
-    if (state.location === "bottom" || state.location === "top") {
-        let expectedY = state.originalY + (state.location === 'top' ? -heightOffset : heightOffset);
-        if (panel.actor.y !== expectedY) {
-            global.log(`[CenteredDock] Panel ${panel.panelId} Y changed: expected=${expectedY}, actual=${panel.actor.y}, diff=${panel.actor.y - expectedY}`);
-        }
-    } else if (state.location === "left" || state.location === "right") {
-        let expectedX = state.originalX + (state.location === 'left' ? -heightOffset : heightOffset);
-        if (panel.actor.x !== expectedX) {
-            global.log(`[CenteredDock] Panel ${panel.panelId} X changed: expected=${expectedX}, actual=${panel.actor.x}, diff=${panel.actor.x - expectedX}`);
-        }
-    }
     
     let savedOpacity = state.isHidden ? 0 : panel.actor.opacity;
     
@@ -2210,10 +2225,6 @@ function applyStyle(panel, forceApply) {
                 usableHeight -= otherPanel.actor.height;
             }
         });
-        
-        if (forceApply) {
-            let margin = (usableHeight - state.lastHeight) / 2;
-        }
         
         let desiredMargin = (usableHeight - state.lastHeight) / 2;
         
