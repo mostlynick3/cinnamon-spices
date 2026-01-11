@@ -602,11 +602,29 @@ function enable() {
     displayStateSignal = Main.layoutManager.connect('monitors-changed', function() {
         if (isInEditMode) return;
         
-        disableAutoHide();
-        panelStates = {};
+        Main.panelManager.panels.forEach(panel => {
+            if (shouldApplyToPanel(panel)) {
+                let state = panelStates[panel.panelId];
+                if (state) {
+                    state.isHidden = false;
+                    state.isHiding = false;
+                    state.isShowing = false;
+                }
+                panel.actor.show();
+                panel.actor.opacity = 255;
+                panel.actor.set_scale(1.0, 1.0);
+            }
+        });
         
-        Mainloop.idle_add(function() {
-            initializePanels();
+        disableAutoHide();
+        
+        Mainloop.timeout_add(200, function() {
+            Main.panelManager.panels.forEach(panel => {
+                if (shouldApplyToPanel(panel)) {
+                    checkAndApplyStyle(panel, true);
+                }
+            });
+            toggleAutoHide();
             return false;
         });
     });
