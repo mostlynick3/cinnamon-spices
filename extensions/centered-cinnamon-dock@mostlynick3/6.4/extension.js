@@ -588,8 +588,6 @@ function enable() {
     try {
         globalSettings = new Settings.ExtensionSettings(this, "centered-cinnamon-dock@mostlynick3");
         
-        migrateSettings();
-        
         isInEditMode = global.settings.get_boolean("panel-edit-mode");
     } catch(e) {
         return;
@@ -697,10 +695,13 @@ function migrateSettings() {
 }
 
 function getPanelSettings(panelId) {
-    let allSettings = globalSettings.getValue("panel-settings");
-    
-    if (allSettings[panelId]) {
-        return allSettings[panelId];
+    try {
+        let allSettings = globalSettings.getValue("panel-settings");
+        
+        if (allSettings[panelId]) {
+            return allSettings[panelId];
+        }
+    } catch(e) {
     }
     
     return {
@@ -722,9 +723,12 @@ function getPanelSettings(panelId) {
 }
 
 function savePanelSettings(panelId, settings) {
-    let allSettings = globalSettings.getValue("panel-settings");
-    allSettings[panelId] = settings;
-    globalSettings.setValue("panel-settings", allSettings);
+    try {
+        let allSettings = globalSettings.getValue("panel-settings");
+        allSettings[panelId] = settings;
+        globalSettings.setValue("panel-settings", allSettings);
+    } catch(e) {
+    }
 }
 
 function addPanelMenuItems() {
