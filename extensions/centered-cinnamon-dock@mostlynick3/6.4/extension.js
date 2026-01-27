@@ -1193,28 +1193,28 @@ function cleanupAllPanels() {
                 state.marginAnimationTimer = null;
             }
             
-            if (typeof state.styleSignal === 'number') {
+            if (state.styleSignal) {
                 try {
                     panel.actor.disconnect(state.styleSignal);
                 } catch(e) {}
                 state.styleSignal = null;
             }
 
-            if (typeof state.showSignal === 'number') {
+            if (state.showSignal) {
                 try {
                     panel.actor.disconnect(state.showSignal);
                 } catch(e) {}
                 state.showSignal = null;
             }
             
-            if (typeof state.allocateId === 'number') {
+            if (state.allocateId) {
                 try {
                     panel.actor.disconnect(state.allocateId);
                 } catch(e) {}
                 state.allocateId = null;
             }
             
-            if (typeof state.allocationId === 'number') {
+            if (state.allocationId) {
                 try {
                     panel.actor.disconnect(state.allocationId);
                 } catch(e) {}
