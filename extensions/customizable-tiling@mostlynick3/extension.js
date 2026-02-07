@@ -5,7 +5,14 @@ const Clutter = imports.gi.Clutter;
 const Settings = imports.ui.settings;
 const Tweener = imports.ui.tweener;
 const Mainloop = imports.mainloop;
+const Cogl = imports.gi.Cogl;
+const GdkPixbuf = imports.gi.GdkPixbuf;
+const Cinnamon = imports.gi.Cinnamon;
+const Gio = imports.gi.Gio;
 
+let previewBlurBackground;
+let previewBlurProcess = null;
+let snapAssistantBlurProcesses = [];
 let previewColor;
 let previewFill;
 let gridColumns;
@@ -21,17 +28,17 @@ let currentWindow;
 let lastSnapInfo;
 let snapEnabled;
 let enableSnapTimeout;
-let snappedPairs;
 let resizeMonitorId;
 let hasHitMinSize = false;
 let minSnapWidth;
 let minSnapHeight;
-let windowDestroyIds = new Map();
 let isHandlingResize = false;
 let mousePollId;
 let showSnapAssistant;
 let snapAssistantContainer;
 let snapAssistantActors = [];
+let pairedWindow;
+let pairedEdge;
 
 function init(metadata) {
     settings = new Settings.ExtensionSettings(this, metadata.uuid);
@@ -61,7 +68,6 @@ function onSettingsChanged() {
 
 function enable() {
     onSettingsChanged();
-    snappedPairs = [];
 
     grabOpBeginId = global.display.connect('grab-op-begin', onGrabBegin);
     grabOpEndId = global.display.connect('grab-op-end', onGrabEnd);
@@ -70,10 +76,6 @@ function enable() {
 function onGrabBegin(display, screen, window, op) {
     if (op === Meta.GrabOp.MOVING && window.window_type === Meta.WindowType.NORMAL) {
         destroySnapAssistant();
-
-        snappedPairs = snappedPairs.filter(pair =>
-            pair.window1 !== window && pair.window2 !== window
-        );
 
         currentWindow = window;
         lastSnapInfo = null;
@@ -120,57 +122,34 @@ function onGrabBegin(display, screen, window, op) {
 
 function startResizeMonitor(window, op) {
     let initialRect = window.get_frame_rect();
-    let pair = findPairForWindow(window);
-
-    if (!pair) return;
-
-    let rect1 = pair.window1.get_frame_rect();
-    let rect2 = pair.window2.get_frame_rect();
+    let monitor = window.get_monitor();
     let tolerance = 5;
 
-    let sharesEdge = false;
-    let correctOrientation = false;
-
-    if (Math.abs((rect1.x + rect1.width) - rect2.x) <= tolerance &&
-        rect1.y === rect2.y && rect1.height === rect2.height) {
-        sharesEdge = true;
-        correctOrientation = (pair.edge === 'left');
-    } else if (Math.abs((rect2.x + rect2.width) - rect1.x) <= tolerance &&
-               rect1.y === rect2.y && rect1.height === rect2.height) {
-        sharesEdge = true;
-        correctOrientation = (pair.edge === 'right');
-    } else if (Math.abs((rect1.y + rect1.height) - rect2.y) <= tolerance &&
-               rect1.x === rect2.x && rect1.width === rect2.width) {
-        sharesEdge = true;
-        correctOrientation = (pair.edge === 'top');
-    } else if (Math.abs((rect2.y + rect2.height) - rect1.y) <= tolerance &&
-               rect1.x === rect2.x && rect1.width === rect2.width) {
-        sharesEdge = true;
-        correctOrientation = (pair.edge === 'bottom');
+    if (op === Meta.GrabOp.RESIZING_W || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_SW) {
+        pairedWindow = findWindowAtEdge(window, 'left', monitor, tolerance);
+        pairedEdge = 'right';
+    } else if (op === Meta.GrabOp.RESIZING_E || op === Meta.GrabOp.RESIZING_NE || op === Meta.GrabOp.RESIZING_SE) {
+        pairedWindow = findWindowAtEdge(window, 'right', monitor, tolerance);
+        pairedEdge = 'left';
+    } else if (op === Meta.GrabOp.RESIZING_N || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_NE) {
+        pairedWindow = findWindowAtEdge(window, 'top', monitor, tolerance);
+        pairedEdge = 'bottom';
+    } else if (op === Meta.GrabOp.RESIZING_S || op === Meta.GrabOp.RESIZING_SW || op === Meta.GrabOp.RESIZING_SE) {
+        pairedWindow = findWindowAtEdge(window, 'bottom', monitor, tolerance);
+        pairedEdge = 'top';
     }
 
-    if (!sharesEdge || !correctOrientation) {
-        snappedPairs = snappedPairs.filter(p => p !== pair);
-        return;
-    }
-
-	let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
-	window.raise();
-	otherWindow.raise();
-	window.raise();
-
-    resizeMonitorId = window.connect('size-changed', function() {
-        handlePairedResize(window, pair, op, initialRect);
-    });
-}
-
-function findPairForWindow(window) {
-    for (let pair of snappedPairs) {
-        if (pair.window1 === window || pair.window2 === window) {
-            return pair;
+    if (pairedWindow) {
+        try {
+            pairedWindow.raise();
+            window.raise();
+        } catch(e) {
         }
     }
-    return null;
+
+    resizeMonitorId = window.connect('size-changed', function() {
+        handlePairedResize(window, op, initialRect);
+    });
 }
 
 function onWindowMoved() {
@@ -256,13 +235,12 @@ function onGrabEnd(display, screen, window, op) {
             resizeMonitorId = null;
         }
 
-        let pair = findPairForWindow(window);
-        if (pair) {
-            let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
-            if (otherWindow) {
-                otherWindow.get_compositor_private().queue_redraw();
-            }
+        pairedWindow = null;
+        pairedEdge = null;
+
+        try {
             window.get_compositor_private().queue_redraw();
+        } catch(e) {
         }
     }
 }
@@ -613,15 +591,24 @@ function showPreview(snapInfo, monitor) {
     let borderColor = previewColor || 'rgba(0, 150, 255, 0.8)';
     let fillColor = previewFill || 'rgba(0, 150, 255, 0.2)';
     preview.set_style('border: 2px solid ' + borderColor + '; background-color: ' + fillColor + ';');
-	preview.show();
+    
+    preview.show();
     Tweener.addTween(preview, {
         opacity: 255,
         time: 0.15,
         transition: 'easeOutQuad'
     });
+
+    destroyAllBlurs();
+    
+    showBlur(rect, Main.uiGroup, preview, function(blurActor) {
+        previewBlurBackground = blurActor;
+    });
 }
 
 function destroyPreview(callback) {
+    destroyAllBlurs();
+
     if (preview) {
         Tweener.addTween(preview, {
             opacity: 0,
@@ -643,6 +630,117 @@ function destroyPreview(callback) {
             callback();
         }
     }
+}
+
+function destroyAllBlurs() {
+    if (previewBlurProcess) {
+        try {
+            previewBlurProcess.force_exit();
+        } catch(e) {}
+        previewBlurProcess = null;
+    }
+    
+    if (previewBlurBackground) {
+        try {
+            Main.uiGroup.remove_actor(previewBlurBackground);
+            previewBlurBackground.destroy();
+            previewBlurBackground = null;
+        } catch(e) {}
+    }
+    
+    for (let proc of snapAssistantBlurProcesses) {
+        try {
+            proc.force_exit();
+        } catch(e) {}
+    }
+    snapAssistantBlurProcesses = [];
+}
+
+function showBlur(rect, parent, insertBelow, onComplete) {
+    let tempFile = '/tmp/snap-blur-' + Date.now() + '.png';
+    let blurredFile = '/tmp/snap-blur-blurred-' + Date.now() + '.png';
+    
+    let proc = Gio.Subprocess.new(
+        ['bash', '-c', 'import -window root -crop ' + rect.width + 'x' + rect.height + '+' + rect.x + '+' + rect.y + ' ' + tempFile + ' && convert ' + tempFile + ' -blur 0x20 ' + blurredFile],
+        Gio.SubprocessFlags.NONE
+    );
+    
+    let isPreview = (parent === Main.uiGroup && insertBelow === preview);
+    if (isPreview) {
+        previewBlurProcess = proc;
+    } else {
+        snapAssistantBlurProcesses.push(proc);
+    }
+    
+    proc.wait_async(null, function(procResult, result) {
+        function cleanupFiles() {
+            Mainloop.timeout_add(1000, function() {
+                try {
+                    let file1 = Gio.file_new_for_path(tempFile);
+                    let file2 = Gio.file_new_for_path(blurredFile);
+                    file1.delete(null);
+                    file2.delete(null);
+                } catch(e) {}
+                return false;
+            });
+        }
+        
+        try {
+            procResult.wait_finish(result);
+            
+            if (isPreview && previewBlurProcess !== procResult) {
+                cleanupFiles();
+                return;
+            }
+            if (!isPreview && !snapAssistantBlurProcesses.includes(procResult)) {
+                cleanupFiles();
+                return;
+            }
+            
+            let pixbuf = GdkPixbuf.Pixbuf.new_from_file(blurredFile);
+            
+            let blurActor = new Clutter.Actor({
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+                opacity: 0
+            });
+            
+            let image = new Clutter.Image();
+            image.set_data(
+                pixbuf.get_pixels(),
+                pixbuf.get_has_alpha() ? Cogl.PixelFormat.RGBA_8888 : Cogl.PixelFormat.RGB_888,
+                pixbuf.get_width(),
+                pixbuf.get_height(),
+                pixbuf.get_rowstride()
+            );
+            
+            blurActor.set_content(image);
+            
+            if (insertBelow) {
+                parent.insert_child_below(blurActor, insertBelow);
+            } else {
+                parent.add_actor(blurActor);
+            }
+            
+            Tweener.addTween(blurActor, {
+                opacity: 200,
+                time: 0.15,
+                transition: 'easeOutQuad'
+            });
+            
+            cleanupFiles();
+            
+            if (onComplete) {
+                onComplete(blurActor);
+            }
+            
+        } catch(e) {
+            global.log('Blur error: ' + e);
+            cleanupFiles();
+        }
+    });
 }
 
 function getSnapRect(snapInfo, monitor) {
@@ -677,75 +775,8 @@ function performSnap(window, snapInfo, monitor) {
 
     if (snapInfo.intelligent) {
         rect = snapInfo;
-
-        snappedPairs = snappedPairs.filter(pair =>
-            pair.window1 !== window && pair.window2 !== window
-        );
-
-        if (snapInfo.snapWindow) {
-            try {
-                let otherRect = snapInfo.snapWindow.get_frame_rect();
-                let pair = {
-                    window1: window,
-                    window2: snapInfo.snapWindow,
-                    edge: snapInfo.edge,
-                    rect1: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                    rect2: { x: otherRect.x, y: otherRect.y, width: otherRect.width, height: otherRect.height }
-                };
-                snappedPairs.push(pair);
-                
-                // Connect to unmanaged signal to cleanup pair
-                let destroyId1 = window.connect('unmanaged', function() {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
-                    cleanupWindowDestroyHandler(window);
-                });
-                windowDestroyIds.set(window, destroyId1);
-                
-                let destroyId2 = snapInfo.snapWindow.connect('unmanaged', function() {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
-                    cleanupWindowDestroyHandler(snapInfo.snapWindow);
-                });
-                windowDestroyIds.set(snapInfo.snapWindow, destroyId2);
-            } catch(e) {
-                // snapWindow no longer valid
-            }
-        }
     } else {
         rect = getSnapRect(snapInfo, monitor);
-
-        snappedPairs = snappedPairs.filter(pair =>
-            pair.window1 !== window && pair.window2 !== window
-        );
-
-        let adjacentWindow = findAdjacentSnappedWindow(window, snapInfo, monitor);
-        if (adjacentWindow) {
-            try {
-                let otherRect = adjacentWindow.window.get_frame_rect();
-                let pair = {
-                    window1: window,
-                    window2: adjacentWindow.window,
-                    edge: adjacentWindow.edge,
-                    rect1: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-                    rect2: { x: otherRect.x, y: otherRect.y, width: otherRect.width, height: otherRect.height }
-                };
-                snappedPairs.push(pair);
-                
-                // Connect to unmanaged signal to cleanup pair
-                let destroyId1 = window.connect('unmanaged', function() {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
-                    cleanupWindowDestroyHandler(window);
-                });
-                windowDestroyIds.set(window, destroyId1);
-                
-                let destroyId2 = adjacentWindow.window.connect('unmanaged', function() {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
-                    cleanupWindowDestroyHandler(adjacentWindow.window);
-                });
-                windowDestroyIds.set(adjacentWindow.window, destroyId2);
-            } catch(e) {
-                // adjacentWindow no longer valid
-            }
-        }
     }
 
     if (rect.width === workArea.width && rect.height === workArea.height) {
@@ -761,230 +792,103 @@ function performSnap(window, snapInfo, monitor) {
         window.unmaximize(Meta.MaximizeFlags.BOTH);
         window.move_resize_frame(false, rect.x, rect.y, rect.width, rect.height);
     } catch(e) {
-        // Window no longer valid
         return;
     }
 }
 
-function cleanupWindowDestroyHandler(window) {
-    if (windowDestroyIds.has(window)) {
-        try {
-            window.disconnect(windowDestroyIds.get(window));
-        } catch(e) {
-            // Already disconnected
-        }
-        windowDestroyIds.delete(window);
-    }
-}
-
-function handlePairedResize(window, pair, op, initialRect) {
+function handlePairedResize(window, op, initialRect) {
     if (isHandlingResize) {
         return;
     }
     isHandlingResize = true;
 
     try {
-        let otherWindow = pair.window1 === window ? pair.window2 : pair.window1;
+        let newRect = window.get_frame_rect();
 
-        if (!otherWindow) {
-            snappedPairs = snappedPairs.filter(p => p !== pair);
+        if (!pairedWindow) {
+            initialRect.x = newRect.x;
+            initialRect.y = newRect.y;
+            initialRect.width = newRect.width;
+            initialRect.height = newRect.height;
             return;
         }
 
-        let otherWindowId;
-        try {
-            otherWindowId = otherWindow.get_stable_sequence();
-        } catch(e) {
-            snappedPairs = snappedPairs.filter(p => p !== pair);
-            return;
-        }
-
-        let newRect;
-        try {
-            newRect = window.get_frame_rect();
-        } catch(e) {
-            snappedPairs = snappedPairs.filter(p => p !== pair);
-            return;
-        }
-
-        let monitor = window.get_monitor();
-        let workspace = global.screen.get_active_workspace();
-        let allWindows = workspace.list_windows();
-
-        let expectedOtherRect = pair.window1 === window ? pair.rect2 : pair.rect1;
-
-        let foundWindow = null;
         let otherRect;
-        let tolerance = 10;
-
-        for (let win of allWindows) {
-            if (win.window_type !== Meta.WindowType.NORMAL ||
-                win.minimized ||
-                win.get_monitor() !== monitor) {
-                continue;
-            }
-
-            let winId;
-            try {
-                winId = win.get_stable_sequence();
-            } catch(e) {
-                continue;
-            }
-
-            if (winId !== otherWindowId) {
-                continue;
-            }
-
-            let winRect;
-            try {
-                winRect = win.get_frame_rect();
-            } catch(e) {
-                continue;
-            }
-
-            if (Math.abs(winRect.x - expectedOtherRect.x) <= tolerance &&
-                Math.abs(winRect.y - expectedOtherRect.y) <= tolerance &&
-                Math.abs(winRect.width - expectedOtherRect.width) <= tolerance &&
-                Math.abs(winRect.height - expectedOtherRect.height) <= tolerance) {
-                foundWindow = win;
-                otherRect = winRect;
-                break;
-            }
-        }
-
-        if (!foundWindow) {
-            snappedPairs = snappedPairs.filter(p => p !== pair);
+        try {
+            otherRect = pairedWindow.get_frame_rect();
+        } catch(e) {
+            pairedWindow = null;
+            pairedEdge = null;
+            initialRect.x = newRect.x;
+            initialRect.y = newRect.y;
+            initialRect.width = newRect.width;
+            initialRect.height = newRect.height;
             return;
         }
 
-        let effectiveEdge = pair.edge;
-        if (pair.window2 === window) {
-            if (pair.edge === 'right') effectiveEdge = 'left';
-            else if (pair.edge === 'left') effectiveEdge = 'right';
-            else if (pair.edge === 'top') effectiveEdge = 'bottom';
-            else if (pair.edge === 'bottom') effectiveEdge = 'top';
-        }
+        if (pairedEdge === 'right') {
+            let targetEdge = newRect.x;
+            let newOtherWidth = targetEdge - otherRect.x;
 
-        let beforeOtherRect = { x: otherRect.x, y: otherRect.y, width: otherRect.width, height: otherRect.height };
-        let beforeWindowRect = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-
-        if (effectiveEdge === 'right') {
-            if (op === Meta.GrabOp.RESIZING_W || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_SW) {
-                let targetEdge = newRect.x;
-                let newOtherWidth = targetEdge - otherRect.x;
-
-                try {
-                    foundWindow.get_frame_rect();
-                    foundWindow.move_resize_frame(false, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
-                    
-                    let afterOtherRect = foundWindow.get_frame_rect();
-                    
-                    // Check if other window actually changed
-                    if (Math.abs(afterOtherRect.width - beforeOtherRect.width) < 2) {
-                        // Other window didn't resize, revert focused window
-                        window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
-                        snappedPairs = snappedPairs.filter(p => p !== pair);
-                        return;
-                    }
-                    
-                    if (pair.window1 === window) {
-                        pair.rect1 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect2 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    } else {
-                        pair.rect2 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect1 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    }
-                } catch(e) {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
+            try {
+                pairedWindow.move_resize_frame(true, otherRect.x, otherRect.y, newOtherWidth, otherRect.height);
+                
+                let afterOtherRect = pairedWindow.get_frame_rect();
+                
+                if (Math.abs(afterOtherRect.width - otherRect.width) < 2) {
+                    window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
                     return;
                 }
+            } catch(e) {
+                return;
             }
-        } else if (effectiveEdge === 'left') {
-            if (op === Meta.GrabOp.RESIZING_E || op === Meta.GrabOp.RESIZING_NE || op === Meta.GrabOp.RESIZING_SE) {
-                let targetEdge = newRect.x + newRect.width;
-                let newOtherWidth = (otherRect.x + otherRect.width) - targetEdge;
+        } else if (pairedEdge === 'left') {
+            let targetEdge = newRect.x + newRect.width;
+            let newOtherWidth = (otherRect.x + otherRect.width) - targetEdge;
 
-                try {
-                    foundWindow.get_frame_rect();
-                    foundWindow.move_resize_frame(false, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
-                    
-                    let afterOtherRect = foundWindow.get_frame_rect();
-                    
-                    if (Math.abs(afterOtherRect.width - beforeOtherRect.width) < 2) {
-                        window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
-                        snappedPairs = snappedPairs.filter(p => p !== pair);
-                        return;
-                    }
-                    
-                    if (pair.window1 === window) {
-                        pair.rect1 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect2 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    } else {
-                        pair.rect2 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect1 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    }
-                } catch(e) {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
+            try {
+                pairedWindow.move_resize_frame(true, targetEdge, otherRect.y, newOtherWidth, otherRect.height);
+                
+                let afterOtherRect = pairedWindow.get_frame_rect();
+                
+                if (Math.abs(afterOtherRect.width - otherRect.width) < 2) {
+                    window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
                     return;
                 }
+            } catch(e) {
+                return;
             }
-        } else if (effectiveEdge === 'bottom') {
-            if (op === Meta.GrabOp.RESIZING_N || op === Meta.GrabOp.RESIZING_NW || op === Meta.GrabOp.RESIZING_NE) {
-                let targetEdge = newRect.y;
-                let newOtherHeight = targetEdge - otherRect.y;
+        } else if (pairedEdge === 'bottom') {
+            let targetEdge = newRect.y;
+            let newOtherHeight = targetEdge - otherRect.y;
 
-                try {
-                    foundWindow.get_frame_rect();
-                    foundWindow.move_resize_frame(false, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
-                    
-                    let afterOtherRect = foundWindow.get_frame_rect();
-                    
-                    if (Math.abs(afterOtherRect.height - beforeOtherRect.height) < 2) {
-                        window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
-                        snappedPairs = snappedPairs.filter(p => p !== pair);
-                        return;
-                    }
-                    
-                    if (pair.window1 === window) {
-                        pair.rect1 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect2 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    } else {
-                        pair.rect2 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect1 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    }
-                } catch(e) {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
+            try {
+                pairedWindow.move_resize_frame(true, otherRect.x, otherRect.y, otherRect.width, newOtherHeight);
+                
+                let afterOtherRect = pairedWindow.get_frame_rect();
+                
+                if (Math.abs(afterOtherRect.height - otherRect.height) < 2) {
+                    window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
                     return;
                 }
+            } catch(e) {
+                return;
             }
-        } else if (effectiveEdge === 'top') {
-            if (op === Meta.GrabOp.RESIZING_S || op === Meta.GrabOp.RESIZING_SW || op === Meta.GrabOp.RESIZING_SE) {
-                let targetEdge = newRect.y + newRect.height;
-                let newOtherHeight = (otherRect.y + otherRect.height) - targetEdge;
+        } else if (pairedEdge === 'top') {
+            let targetEdge = newRect.y + newRect.height;
+            let newOtherHeight = (otherRect.y + otherRect.height) - targetEdge;
 
-                try {
-                    foundWindow.get_frame_rect();
-                    foundWindow.move_resize_frame(false, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
-                    
-                    let afterOtherRect = foundWindow.get_frame_rect();
-                    
-                    if (Math.abs(afterOtherRect.height - beforeOtherRect.height) < 2) {
-                        window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
-                        snappedPairs = snappedPairs.filter(p => p !== pair);
-                        return;
-                    }
-                    
-                    if (pair.window1 === window) {
-                        pair.rect1 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect2 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    } else {
-                        pair.rect2 = { x: newRect.x, y: newRect.y, width: newRect.width, height: newRect.height };
-                        pair.rect1 = { x: afterOtherRect.x, y: afterOtherRect.y, width: afterOtherRect.width, height: afterOtherRect.height };
-                    }
-                } catch(e) {
-                    snappedPairs = snappedPairs.filter(p => p !== pair);
+            try {
+                pairedWindow.move_resize_frame(true, otherRect.x, targetEdge, otherRect.width, newOtherHeight);
+                
+                let afterOtherRect = pairedWindow.get_frame_rect();
+                
+                if (Math.abs(afterOtherRect.height - otherRect.height) < 2) {
+                    window.move_resize_frame(false, initialRect.x, initialRect.y, initialRect.width, initialRect.height);
                     return;
                 }
+            } catch(e) {
+                return;
             }
         }
 
@@ -996,44 +900,42 @@ function handlePairedResize(window, pair, op, initialRect) {
         isHandlingResize = false;
     }
 }
-function findAdjacentSnappedWindow(window, snapInfo, monitor) {
-    let cols = gridColumns || 2;
-    let rows = gridRows || 2;
 
+function findWindowAtEdge(window, edge, monitor, tolerance) {
     let workspace = global.screen.get_active_workspace();
     let allWindows = workspace.list_windows();
-
-    let rect = getSnapRect(snapInfo, monitor);
-    let tolerance = 5;
+    let rect = window.get_frame_rect();
 
     for (let win of allWindows) {
         if (win === window ||
             win.window_type !== Meta.WindowType.NORMAL ||
             win.minimized ||
-            win.get_monitor() !== monitor.index) {
+            win.get_monitor() !== monitor) {
             continue;
         }
 
         let winRect = win.get_frame_rect();
 
-        if (Math.abs(winRect.x + winRect.width - rect.x) <= tolerance &&
-            winRect.y === rect.y && winRect.height === rect.height) {
-            return { window: win, edge: 'right' };
-        }
-
-        if (Math.abs(rect.x + rect.width - winRect.x) <= tolerance &&
-            winRect.y === rect.y && winRect.height === rect.height) {
-            return { window: win, edge: 'left' };
-        }
-
-        if (Math.abs(winRect.y + winRect.height - rect.y) <= tolerance &&
-            winRect.x === rect.x && winRect.width === rect.width) {
-            return { window: win, edge: 'bottom' };
-        }
-
-        if (Math.abs(rect.y + rect.height - winRect.y) <= tolerance &&
-            winRect.x === rect.x && winRect.width === rect.width) {
-            return { window: win, edge: 'top' };
+        if (edge === 'left') {
+            if (Math.abs((winRect.x + winRect.width) - rect.x) <= tolerance &&
+                winRect.y === rect.y && winRect.height === rect.height) {
+                return win;
+            }
+        } else if (edge === 'right') {
+            if (Math.abs(winRect.x - (rect.x + rect.width)) <= tolerance &&
+                winRect.y === rect.y && winRect.height === rect.height) {
+                return win;
+            }
+        } else if (edge === 'top') {
+            if (Math.abs((winRect.y + winRect.height) - rect.y) <= tolerance &&
+                winRect.x === rect.x && winRect.width === rect.width) {
+                return win;
+            }
+        } else if (edge === 'bottom') {
+            if (Math.abs(winRect.y - (rect.y + rect.height)) <= tolerance &&
+                winRect.x === rect.x && winRect.width === rect.width) {
+                return win;
+            }
         }
     }
 
@@ -1137,11 +1039,15 @@ function showWindowThumbnailsInSnapArea(position, windows, monitor) {
         height: rect.height
     });
 
-	snapAreaOverlay.set_style(
-		'background-color: ' + previewFill + ';' +
-		'border: 3px solid ' + previewColor + ';' +
-		'border-radius: 8px;'
-	);
+    snapAreaOverlay.set_style(
+        'background-color: ' + previewFill + ';' +
+        'border: 3px solid ' + previewColor + ';' +
+        'border-radius: 8px;'
+    );
+
+    showBlur(rect, snapAssistantContainer, snapAreaOverlay, function(blurActor) {
+        snapAssistantActors.push(blurActor);
+    });
 
     snapAssistantContainer.add_actor(snapAreaOverlay);
     snapAssistantActors.push(snapAreaOverlay);
@@ -1166,7 +1072,8 @@ function showWindowThumbnailsInSnapArea(position, windows, monitor) {
     thumbnailHeight = Math.min(thumbnailHeight, maxThumbnailHeight);
 
     let containerWidth = (thumbnailWidth * numCols) + (thumbnailSpacing * (numCols - 1));
-    let containerHeight = (thumbnailHeight * numRows) + (thumbnailSpacing * (numRows - 1));
+    let labelHeight = 20;
+    let containerHeight = (thumbnailHeight * numRows) + (thumbnailSpacing * (numRows - 1)) + (labelHeight * numRows);
 
     let startX = rect.x + (rect.width - containerWidth) / 2;
     let startY = rect.y + (rect.height - containerHeight) / 2;
@@ -1177,7 +1084,7 @@ function showWindowThumbnailsInSnapArea(position, windows, monitor) {
         let col = i % maxThumbnailsPerRow;
 
         let thumbX = startX + (col * (thumbnailWidth + thumbnailSpacing));
-        let thumbY = startY + (row * (thumbnailHeight + thumbnailSpacing));
+        let thumbY = startY + (row * (thumbnailHeight + thumbnailSpacing + labelHeight));
 
         createWindowThumbnail(win, thumbX, thumbY, thumbnailWidth, thumbnailHeight, position);
     }
@@ -1234,7 +1141,7 @@ function createWindowThumbnail(window, x, y, width, height, position) {
 		let clone = new Clutter.Clone({
 			source: windowActor,
 			reactive: false,
-			x: -(windowRect.width)*0.01, // For some reason, previews are skewed due right, this is a hackfix to reposition
+			x: -(windowRect.width)*0.01,
 			y: 0
 		});
 
@@ -1294,15 +1201,13 @@ function createWindowThumbnail(window, x, y, width, height, position) {
 
     Tweener.addTween(container, {
         opacity: 255,
-        time: 0.25,
-        delay: 0.05 * snapAssistantActors.length,
+        time: 0.5,
         transition: 'easeOutQuad'
     });
 
     Tweener.addTween(titleLabel, {
         opacity: 255,
-        time: 0.25,
-        delay: 0.05 * snapAssistantActors.length,
+        time: 0.5,
         transition: 'easeOutQuad'
     });
 }
@@ -1532,7 +1437,6 @@ function snapWindowToPosition(window, position) {
     let monitor = Main.layoutManager.currentMonitor;
 
     try {
-        // Verify window still exists
         window.get_frame_rect();
         
         if (position.snapInfo.intelligent) {
@@ -1550,7 +1454,6 @@ function snapWindowToPosition(window, position) {
 
         window.activate(global.get_current_time());
     } catch(e) {
-        // Window no longer valid, just return
         return;
     }
 }
@@ -1635,15 +1538,7 @@ function disable() {
     destroyPreview(null);
     destroySnapAssistant();
 
-    windowDestroyIds.forEach((id, window) => {
-        try {
-            window.disconnect(id);
-        } catch(e) {}
-    });
-    windowDestroyIds.clear();
-
     currentWindow = null;
     lastSnapInfo = null;
     snapEnabled = false;
-    snappedPairs = [];
 }
