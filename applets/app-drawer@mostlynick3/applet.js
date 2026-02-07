@@ -65,6 +65,9 @@ MyApplet.prototype = {
         this.isFirstOpen = true;
         this.activeTooltip = null;
         this.tooltipTimeout = null;
+        this.focusedRow = 0;
+        this.focusedCol = 0;
+        this.appButtons = [];
     },
 
     on_applet_clicked: function() {
@@ -134,6 +137,138 @@ MyApplet.prototype = {
 		return Main.layoutManager.primaryMonitor;
 	},
 
+    _focusApp: function(row, col) {
+        let index;
+        if (this.navigationMode === 'buttons') {
+            index = (row * this.columns) + col;
+        } else if (this.navigationMode === 'scroll-vertical') {
+            index = (row * this.columns) + col;
+        } else {
+            index = (col * this.rows) + row;
+        }
+        
+        if (index >= 0 && index < this.appButtons.length) {
+            this.appButtons.forEach(btn => btn.remove_style_pseudo_class('focus'));
+            this.appButtons[index].add_style_pseudo_class('focus');
+            this.focusedRow = row;
+            this.focusedCol = col;
+            
+            if (this.scrollAdjustment && (this.navigationMode === 'scroll-vertical' || this.navigationMode === 'scroll-horizontal')) {
+                let button = this.appButtons[index];
+                
+                imports.mainloop.timeout_add(10, () => {
+                    if (!button || button.is_finalized()) return false;
+                    
+                    let boxSize = this.iconSize + 60;
+                    let padding = this.padding;
+                    
+                    if (this.navigationMode === 'scroll-vertical') {
+                        let buttonY = (row * (boxSize + padding * 2)) + padding;
+                        let viewHeight = (boxSize + padding * 2) * this.rows;
+                        let currentScroll = this.scrollAdjustment.value;
+                        
+                        if (buttonY < currentScroll) {
+                            this.scrollAdjustment.value = buttonY;
+                        } else if (buttonY + boxSize + padding * 2 > currentScroll + viewHeight) {
+                            this.scrollAdjustment.value = buttonY + boxSize + padding * 2 - viewHeight;
+                        }
+                    } else {
+                        let buttonX = (col * (boxSize + padding * 2)) + padding;
+                        let viewWidth = (boxSize + padding * 2) * this.columns;
+                        let currentScroll = this.scrollAdjustment.value;
+                        
+                        if (buttonX < currentScroll) {
+                            this.scrollAdjustment.value = buttonX;
+                        } else if (buttonX + boxSize + padding * 2 > currentScroll + viewWidth) {
+                            this.scrollAdjustment.value = buttonX + boxSize + padding * 2 - viewWidth;
+                        }
+                    }
+                    
+                    return false;
+                });
+            }
+        }
+    },
+
+    _navigateApps: function(direction) {
+        let newRow = this.focusedRow;
+        let newCol = this.focusedCol;
+        let perPage = this.columns * this.rows;
+        
+        let maxRow, maxCol;
+        if (this.navigationMode === 'scroll-horizontal') {
+            maxRow = this.rows - 1;
+            maxCol = Math.ceil(this.filteredApps.length / this.rows) - 1;
+        } else if (this.navigationMode === 'scroll-vertical') {
+            maxRow = Math.ceil(this.filteredApps.length / this.columns) - 1;
+            maxCol = this.columns - 1;
+        } else {
+            let appsOnPage = Math.min(perPage, this.filteredApps.length - (this.currentPage * perPage));
+            maxRow = Math.ceil(appsOnPage / this.columns) - 1;
+            maxCol = appsOnPage > this.columns ? this.columns - 1 : appsOnPage - 1;
+        }
+        
+        switch(direction) {
+            case 'up':
+                if (newRow > 0) {
+                    newRow--;
+                }
+                break;
+            case 'down':
+                if (this.navigationMode === 'scroll-vertical') {
+                    let targetIndex = ((newRow + 1) * this.columns) + newCol;
+                    if (targetIndex < this.filteredApps.length) {
+                        newRow++;
+                    }
+                } else if (this.navigationMode === 'scroll-horizontal') {
+                    if (newRow < maxRow) {
+                        newRow++;
+                    }
+                } else {
+                    if (newRow < maxRow) {
+                        newRow++;
+                    }
+                }
+                break;
+            case 'left':
+                if (newCol > 0) {
+                    newCol--;
+                } else if (this.navigationMode === 'buttons' && this.currentPage > 0) {
+                    this.currentPage--;
+                    this._updateGrid();
+                    this._focusApp(0, 0);
+                    return;
+                }
+                break;
+            case 'right':
+                if (this.navigationMode === 'scroll-horizontal') {
+                    let targetIndex = (newCol + 1) * this.rows + newRow;
+                    if (targetIndex < this.filteredApps.length) {
+                        newCol++;
+                    }
+                } else if (this.navigationMode === 'scroll-vertical') {
+                    if (newCol < maxCol) {
+                        newCol++;
+                    }
+                } else {
+                    if (newCol < maxCol) {
+                        newCol++;
+                    } else if (this.navigationMode === 'buttons') {
+                        let maxPage = Math.ceil(this.filteredApps.length / perPage) - 1;
+                        if (this.currentPage < maxPage) {
+                            this.currentPage++;
+                            this._updateGrid();
+                            this._focusApp(0, 0);
+                            return;
+                        }
+                    }
+                }
+                break;
+        }
+        
+        this._focusApp(newRow, newCol);
+    },
+
     _showModal: function() {
         let isFirstOpen = this.apps.length === 0;
         
@@ -171,9 +306,6 @@ MyApplet.prototype = {
         });
         
         container.connect('button-press-event', (actor, event) => {
-            if (this.searchEntry && global.stage.get_key_focus() === this.searchEntry.clutter_text) {
-                global.stage.set_key_focus(this.modal);
-            }
             return Clutter.EVENT_STOP;
         });
         
@@ -191,7 +323,7 @@ MyApplet.prototype = {
 
             this.searchEntry = new St.Entry({
                 track_hover: true,
-                can_focus: true,
+                can_focus: false,
                 style_class: 'app-drawer-search',
                 style: 'width: 400px; padding: 12px 16px 12px 40px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white; font-size: 14px;'
             });
@@ -216,20 +348,6 @@ MyApplet.prototype = {
             this.searchEntry.clutter_text.connect('text-changed', () => {
                 this.searchClearButton.visible = this.searchEntry.get_text().length > 0;
                 this._onSearchTextChanged();
-            });
-            
-            this.searchEntry.clutter_text.connect('key-press-event', (actor, event) => {
-                let symbol = event.get_key_symbol();
-                if (symbol === Clutter.KEY_Escape) {
-                    if (this.searchEntry.get_text() !== '') {
-                        this._clearSearch();
-                    } else {
-                        this.searchEntry.clutter_text.set_selection(0, 0);
-                        global.stage.set_key_focus(this.modal);
-                    }
-                    return Clutter.EVENT_STOP;
-                }
-                return Clutter.EVENT_PROPAGATE;
             });
             
             searchBox.add_actor(this.searchEntry);
@@ -309,11 +427,6 @@ MyApplet.prototype = {
             let button = event.get_button();
             
             if (button === 1) {
-                if (this.searchEntry && this.searchEntry.has_key_focus()) {
-                    global.stage.set_key_focus(null);
-                    return Clutter.EVENT_STOP;
-                }
-                
                 if (event.get_source() === this.modal) {
                     this._destroyModal();
                     return Clutter.EVENT_STOP;
@@ -357,14 +470,53 @@ MyApplet.prototype = {
                 return Clutter.EVENT_STOP;
             }
             
-            if (this.navigationMode === 'buttons') {
-                if (symbol === Clutter.KEY_Left) {
-                    this._navigateLeft();
-                    return Clutter.EVENT_STOP;
+            if (symbol === Clutter.KEY_Up) {
+                this._navigateApps('up');
+                return Clutter.EVENT_STOP;
+            }
+            if (symbol === Clutter.KEY_Down) {
+                this._navigateApps('down');
+                return Clutter.EVENT_STOP;
+            }
+            if (symbol === Clutter.KEY_Left) {
+                this._navigateApps('left');
+                return Clutter.EVENT_STOP;
+            }
+            if (symbol === Clutter.KEY_Right) {
+                this._navigateApps('right');
+                return Clutter.EVENT_STOP;
+            }
+            
+            if (symbol === Clutter.KEY_BackSpace) {
+                if (this.enableSearch && this.searchEntry) {
+                    let currentText = this.searchEntry.get_text();
+                    if (currentText.length > 0) {
+                        this.searchEntry.set_text(currentText.slice(0, -1));
+                    }
                 }
-                
-                if (symbol === Clutter.KEY_Right) {
-                    this._navigateRight();
+                return Clutter.EVENT_STOP;
+            }
+            
+            if (symbol === Clutter.KEY_Return || symbol === Clutter.KEY_KP_Enter) {
+                let index;
+                if (this.navigationMode === 'buttons') {
+                    index = (this.currentPage * this.columns * this.rows) + (this.focusedRow * this.columns) + this.focusedCol;
+                } else if (this.navigationMode === 'scroll-vertical') {
+                    index = (this.focusedRow * this.columns) + this.focusedCol;
+                } else {
+                    index = (this.focusedCol * this.rows) + this.focusedRow;
+                }
+                if (index >= 0 && index < this.appButtons.length) {
+                    this.appButtons[index].emit('button-press-event', null);
+                }
+                return Clutter.EVENT_STOP;
+            }
+            
+            if (this.enableSearch && this.searchEntry && !event.has_control_modifier()) {
+                let unichar = String.fromCharCode(Clutter.keysym_to_unicode(symbol));
+                if (unichar && unichar.match(/[\w\s!"#¤%&]/)) {
+                    let currentText = this.searchEntry.get_text();
+                    this.searchEntry.set_text(currentText + unichar);
                     return Clutter.EVENT_STOP;
                 }
             }
@@ -376,6 +528,15 @@ MyApplet.prototype = {
         global.stage.add_actor(this.modal);
         
         this._updateGrid();
+        
+        this._focusApp(0, 0);
+
+        imports.mainloop.timeout_add(60, () => {
+            if (this.modal) {
+                this._focusApp(0, 0);
+            }
+            return false;
+        });
 
         this.modal.opacity = 0;
 
@@ -414,6 +575,7 @@ MyApplet.prototype = {
     },
 
     _updateGrid: function() {
+        this.appButtons = [];
         let oldGrid = this.grid;
         
         let boxSize = this.iconSize + 60;
@@ -569,6 +731,7 @@ MyApplet.prototype = {
         });
         
         this._updateGrid();
+        this._focusApp(0, 0);
     },
 
     _clearSearch: function() {
@@ -579,6 +742,7 @@ MyApplet.prototype = {
         this.currentPage = 0;
         this.filteredApps = this.apps.slice();
         this._updateGrid();
+        this._focusApp(0, 0);
     },
 
     _animateOpen: function(modal, container) {
@@ -785,7 +949,9 @@ MyApplet.prototype = {
         });
         
         box.connect('leave-event', () => {
-            box.set_style('margin: ' + this.padding + 'px; background: ' + boxColor + '; border-radius: 12px; spacing: ' + spacing + 'px; padding-top: ' + Math.round(boxSize * 0.15) + 'px;');
+            if (!box.has_style_pseudo_class('focus')) {
+                box.set_style('margin: ' + this.padding + 'px; background: ' + boxColor + '; border-radius: 12px; spacing: ' + spacing + 'px; padding-top: ' + Math.round(boxSize * 0.15) + 'px;');
+            }
 
             if (this.tooltipTimeout) {
                 imports.mainloop.source_remove(this.tooltipTimeout);
@@ -800,6 +966,14 @@ MyApplet.prototype = {
                 this.activeTooltip.set_position(x + 15, y + 15);
             }
             return Clutter.EVENT_PROPAGATE;
+        });
+        
+        box.connect('style-changed', () => {
+            if (box.has_style_pseudo_class('focus')) {
+                box.set_style('margin: ' + this.padding + 'px; background: ' + boxHoverColor + '; border-radius: 12px; box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.3); spacing: ' + spacing + 'px; padding-top: ' + Math.round(boxSize * 0.15) + 'px;');
+            } else if (!box.hover) {
+                box.set_style('margin: ' + this.padding + 'px; background: ' + boxColor + '; border-radius: 12px; spacing: ' + spacing + 'px; padding-top: ' + Math.round(boxSize * 0.15) + 'px;');
+            }
         });
         
         let icon = app.get_icon();
@@ -1000,6 +1174,8 @@ MyApplet.prototype = {
             this._destroyModal();
             return Clutter.EVENT_STOP;
         });
+        
+        this.appButtons.push(box);
         
         return box;
     },

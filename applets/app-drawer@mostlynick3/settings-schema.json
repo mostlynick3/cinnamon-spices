@@ -95,12 +95,6 @@
         "default": true,
         "description": "Enable search bar"
     },
-    "autoFocusSearch": {
-        "type": "checkbox",
-        "default": false,
-        "description": "Auto-focus search bar when opened",
-        "dependency": "enableSearch"
-    },
     "enableFavorites": {
         "type": "checkbox",
         "default": true,
