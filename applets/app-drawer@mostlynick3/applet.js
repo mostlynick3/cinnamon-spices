@@ -30,6 +30,10 @@ MyApplet.prototype = {
         this.settings.bind("padding", "padding", this._onSettingsChanged.bind(this));
         this.settings.bind("fontSize", "fontSize", this._onSettingsChanged.bind(this));
         
+        this.settings.bind("enableMarquee", "enableMarquee", this._onSettingsChanged.bind(this));
+        this.settings.bind("marqueeMode", "marqueeMode", this._onSettingsChanged.bind(this));
+        this.settings.bind("marqueeDelay", "marqueeDelay", this._onSettingsChanged.bind(this));
+        
         this.settings.bind("enableSearch", "enableSearch", this._onSettingsChanged.bind(this));
         this.settings.bind("enableFavorites", "enableFavorites", this._onSettingsChanged.bind(this));
         this.settings.bind("favoriteApps", "favoriteApps");
@@ -782,7 +786,7 @@ MyApplet.prototype = {
         
         box.connect('leave-event', () => {
             box.set_style('margin: ' + this.padding + 'px; background: ' + boxColor + '; border-radius: 12px; spacing: ' + spacing + 'px; padding-top: ' + Math.round(boxSize * 0.15) + 'px;');
-    
+
             if (this.tooltipTimeout) {
                 imports.mainloop.source_remove(this.tooltipTimeout);
                 this.tooltipTimeout = null;
@@ -802,7 +806,7 @@ MyApplet.prototype = {
         let iconActor = new St.Icon({
             gicon: icon,
             icon_size: this.iconSize,
-			x_align: Clutter.ActorAlign.CENTER,
+            x_align: Clutter.ActorAlign.CENTER,
             y_align: Clutter.ActorAlign.CENTER
         });
         
@@ -847,17 +851,148 @@ MyApplet.prototype = {
         box.add_actor(iconWrapper);
         
         let labelHeight = Math.round(this.fontSize * 2.5);
-        let label = new St.Label({
-            text: app.get_display_name(),
-            style: 'font-size: ' + this.fontSize + 'pt; color: rgba(255, 255, 255, 0.95); text-align: center; padding-left: 8px; padding-right: 8px; height: ' + labelHeight + 'px;',
-            x_align: Clutter.ActorAlign.CENTER,
-            y_align: Clutter.ActorAlign.START
-        });
-        label.clutter_text.set_line_wrap(false);
-        label.clutter_text.set_ellipsize(3);
-        label.clutter_text.set_line_alignment(2);
+        let appName = app.get_display_name();
         
-        box.add_actor(label);
+        if (this.enableMarquee) {
+            let labelContainer = new St.Widget({
+                width: boxSize - 16,
+                height: labelHeight,
+                clip_to_allocation: true,
+                x_align: Clutter.ActorAlign.CENTER
+            });
+            
+            let label = new St.Label({
+                text: appName,
+                style: 'font-size: ' + this.fontSize + 'pt; color: rgba(255, 255, 255, 0.95); text-align: center;',
+                y_align: Clutter.ActorAlign.START
+            });
+            label.clutter_text.set_line_wrap(false);
+            label.clutter_text.set_ellipsize(0);
+            
+            labelContainer.add_child(label);
+            box.add_actor(labelContainer);
+            
+            let scrollLoopId = null;
+            let isHovered = false;
+            
+            imports.mainloop.timeout_add(10, () => {
+                if (!label || label.is_finalized()) return false;
+                
+                let labelWidth = label.get_width();
+                let containerWidth = labelContainer.width;
+                
+                if (labelWidth <= containerWidth) {
+                    label.x = Math.round((containerWidth - labelWidth) / 2);
+                } else {
+                    label.x = 0;
+                    
+                    let startScrollLoop = () => {
+                        if (!label || label.is_finalized() || !this.modal) {
+                            if (scrollLoopId) {
+                                imports.mainloop.source_remove(scrollLoopId);
+                                scrollLoopId = null;
+                            }
+                            return;
+                        }
+                        
+                        let scrollDistance = labelWidth - containerWidth + 20;
+                        
+                        scrollLoopId = imports.mainloop.timeout_add(this.marqueeDelay, () => {
+                            if (!label || label.is_finalized() || !this.modal) {
+                                scrollLoopId = null;
+                                return false;
+                            }
+                            
+                            if (this.marqueeMode === 'hover' && !isHovered) {
+                                scrollLoopId = null;
+                                startScrollLoop();
+                                return false;
+                            }
+                            
+                            Tweener.addTween(label, {
+                                x: -scrollDistance,
+                                time: scrollDistance / 30,
+                                transition: 'linear',
+                                onComplete: () => {
+                                    if (!label || label.is_finalized() || !this.modal) {
+                                        return;
+                                    }
+                                    
+                                    scrollLoopId = imports.mainloop.timeout_add(1000, () => {
+                                        if (!label || label.is_finalized() || !this.modal) {
+                                            scrollLoopId = null;
+                                            return false;
+                                        }
+                                        
+                                        if (this.marqueeMode === 'hover' && !isHovered) {
+                                            Tweener.removeTweens(label);
+                                            label.x = 0;
+                                            scrollLoopId = null;
+                                            return false;
+                                        }
+                                        
+                                        Tweener.addTween(label, {
+                                            x: 0,
+                                            time: scrollDistance / 30,
+                                            transition: 'linear',
+                                            onComplete: () => {
+                                                startScrollLoop();
+                                            }
+                                        });
+                                        
+                                        scrollLoopId = null;
+                                        return false;
+                                    });
+                                }
+                            });
+                            
+                            scrollLoopId = null;
+                            return false;
+                        });
+                    };
+                    
+                    if (this.marqueeMode === 'auto') {
+                        startScrollLoop();
+                    } else if (this.marqueeMode === 'hover') {
+                        box.connect('enter-event', () => {
+                            isHovered = true;
+                            if (!scrollLoopId && label.x === 0) {
+                                startScrollLoop();
+                            }
+                        });
+                        
+                        box.connect('leave-event', () => {
+                            isHovered = false;
+                            if (scrollLoopId) {
+                                imports.mainloop.source_remove(scrollLoopId);
+                                scrollLoopId = null;
+                            }
+                            Tweener.removeTweens(label);
+                            Tweener.addTween(label, {
+                                x: 0,
+                                time: 0.2,
+                                transition: 'easeOutQuad'
+                            });
+                        });
+                    }
+                }
+                
+                return false;
+            });
+
+        } else {
+            let label = new St.Label({
+                text: appName,
+                style: 'font-size: ' + this.fontSize + 'pt; color: rgba(255, 255, 255, 0.95); text-align: center; padding-left: 8px; padding-right: 8px; height: ' + labelHeight + 'px;',
+                x_align: Clutter.ActorAlign.CENTER,
+                y_align: Clutter.ActorAlign.START
+            });
+            label.clutter_text.set_line_wrap(false);
+            label.clutter_text.set_ellipsize(3);
+            label.clutter_text.set_line_alignment(2);
+            
+            box.add_actor(label);
+        }
         
         box.connect('button-press-event', () => {
             this._hideTooltip();

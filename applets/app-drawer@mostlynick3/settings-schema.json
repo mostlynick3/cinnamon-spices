@@ -57,6 +57,35 @@
         "step": 1,
         "description": "Label font size (pt)"
     },
+    "labelBehavior": {
+        "type": "header",
+        "description": "Label Text Settings"
+    },
+    "enableMarquee": {
+        "type": "checkbox",
+        "default": true,
+        "description": "Enable marquee scrolling text"
+    },
+    "marqueeMode": {
+        "type": "combobox",
+        "default": "auto",
+        "description": "Marquee scroll mode",
+        "options": {
+            "Auto scroll": "auto",
+            "Scroll on hover": "hover"
+        },
+        "dependency": "enableMarquee"
+    },
+    "marqueeDelay": {
+        "type": "spinbutton",
+        "default": 2000,
+        "min": 500,
+        "max": 10000,
+        "step": 500,
+        "units": "ms",
+        "description": "Delay before marquee scroll",
+        "dependency": "enableMarquee"
+    },
     "features": {
         "type": "header",
         "description": "Features"
@@ -66,6 +95,12 @@
         "default": true,
         "description": "Enable search bar"
     },
+    "autoFocusSearch": {
+        "type": "checkbox",
+        "default": false,
+        "description": "Auto-focus search bar when opened",
+        "dependency": "enableSearch"
+    },
     "enableFavorites": {
         "type": "checkbox",
         "default": true,
@@ -74,6 +109,11 @@
     "favoriteApps": {
         "type": "generic",
         "default": []
+    },
+    "overlay-keybinding": {
+        "type": "keybinding",
+        "default": "<Super>a",
+        "description": "Keyboard shortcut to toggle overlay"
     },
     "appearance": {
         "type": "header",
