@@ -50,6 +50,7 @@ MyApplet.prototype = {
         this.settings.bind("animationDuration", "animationDuration");
         
         this.modal = null;
+        this.blurBackground = null;
         this.apps = [];
         this.filteredApps = [];
         this.currentPage = 0;
@@ -138,13 +139,15 @@ MyApplet.prototype = {
         
         let monitor = this._getMonitorGeometry();
         
+        this._createBlurBackground(monitor);
+        
         let bgColor = this._rgbToRgba(this.bgColor, this.bgOpacity);
         
         this.modal = new St.BoxLayout({
             style_class: 'app-drawer-overlay',
             vertical: true,
             reactive: true,
-            style: 'background-color: ' + bgColor + '; backdrop-filter: blur(20px);'
+            style: 'background-color: ' + bgColor + ';'
         });
         
         this.modal.set_position(monitor.x, monitor.y);
@@ -584,16 +587,26 @@ MyApplet.prototype = {
                 container.translation_y = 0;
                 container.opacity = 255;
                 modal.opacity = 0;
+                if (this.blurBackground) this.blurBackground.opacity = 0;
+                
                 Tweener.addTween(modal, {
                     opacity: 255,
                     time: duration,
                     transition: 'easeOutQuad',
                     onComplete: () => { this.isAnimating = false; }
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 255,
+                        time: duration,
+                        transition: 'easeOutQuad'
+                    });
+                }
                 break;
                 
             case 'scale':
                 modal.opacity = 255;
+                if (this.blurBackground) this.blurBackground.opacity = 255;
                 container.translation_y = 0;
                 container.set_scale(0.8, 0.8);
                 container.opacity = 0;
@@ -609,6 +622,7 @@ MyApplet.prototype = {
                 
             case 'slide-up':
                 modal.opacity = 255;
+                if (this.blurBackground) this.blurBackground.opacity = 255;
                 container.set_scale(1.0, 1.0);
                 container.translation_y = 100;
                 container.opacity = 0;
@@ -624,6 +638,7 @@ MyApplet.prototype = {
             case 'zoom':
                 container.translation_y = 0;
                 modal.opacity = 0;
+                if (this.blurBackground) this.blurBackground.opacity = 0;
                 container.set_scale(0.5, 0.5);
                 container.opacity = 255;
                 Tweener.addTween(modal, {
@@ -631,6 +646,13 @@ MyApplet.prototype = {
                     time: duration,
                     transition: 'easeOutQuad'
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 255,
+                        time: duration,
+                        transition: 'easeOutQuad'
+                    });
+                }
                 Tweener.addTween(container, {
                     scale_x: 1.0,
                     scale_y: 1.0,
@@ -642,6 +664,7 @@ MyApplet.prototype = {
                 
             default:
                 modal.opacity = 255;
+                if (this.blurBackground) this.blurBackground.opacity = 255;
                 container.opacity = 255;
                 this.isAnimating = false;
         }
@@ -928,6 +951,13 @@ MyApplet.prototype = {
                     transition: 'easeOutQuad',
                     onComplete: () => { this._completeDestroy(); }
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 0,
+                        time: duration,
+                        transition: 'easeOutQuad'
+                    });
+                }
                 break;
                 
             case 'scale':
@@ -939,6 +969,13 @@ MyApplet.prototype = {
                     transition: 'easeInBack',
                     onComplete: () => { this._completeDestroy(); }
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 0,
+                        time: duration,
+                        transition: 'easeInBack'
+                    });
+                }
                 break;
                 
             case 'slide-down':
@@ -949,6 +986,13 @@ MyApplet.prototype = {
                     transition: 'easeInQuad',
                     onComplete: () => { this._completeDestroy(); }
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 0,
+                        time: duration,
+                        transition: 'easeInQuad'
+                    });
+                }
                 break;
                 
             case 'zoom':
@@ -957,6 +1001,13 @@ MyApplet.prototype = {
                     time: duration,
                     transition: 'easeInQuad'
                 });
+                if (this.blurBackground) {
+                    Tweener.addTween(this.blurBackground, {
+                        opacity: 0,
+                        time: duration,
+                        transition: 'easeInQuad'
+                    });
+                }
                 Tweener.addTween(container, {
                     scale_x: 0.5,
                     scale_y: 0.5,
@@ -971,12 +1022,97 @@ MyApplet.prototype = {
         }
     },
 
+_createBlurBackground: function(monitor) {
+    let tempFile = '/tmp/app-drawer-blur-' + Date.now() + '.png';
+    let blurredFile = '/tmp/app-drawer-blur-blurred-' + Date.now() + '.png';
+    
+    try {
+        let proc = Gio.Subprocess.new(
+            ['bash', '-c', 'import -window root -crop ' + monitor.width + 'x' + monitor.height + '+' + monitor.x + '+' + monitor.y + ' ' + tempFile + ' && convert ' + tempFile + ' -blur 0x20 ' + blurredFile],
+            Gio.SubprocessFlags.NONE
+        );
+        
+        proc.wait_async(null, (procResult, result) => {
+            try {
+                procResult.wait_finish(result);
+                
+                if (!this.modal) {
+                    this._cleanupBlurFiles(tempFile, blurredFile);
+                    return;
+                }
+                
+                let pixbuf = imports.gi.GdkPixbuf.Pixbuf.new_from_file(blurredFile);
+                
+                let blurActor = new Clutter.Actor({
+                    x: monitor.x,
+                    y: monitor.y,
+                    width: monitor.width,
+                    height: monitor.height,
+                    opacity: 0
+                });
+                
+                let image = new Clutter.Image();
+                image.set_data(
+                    pixbuf.get_pixels(),
+                    pixbuf.get_has_alpha() ? imports.gi.Cogl.PixelFormat.RGBA_8888 : imports.gi.Cogl.PixelFormat.RGB_888,
+                    pixbuf.get_width(),
+                    pixbuf.get_height(),
+                    pixbuf.get_rowstride()
+                );
+                
+                blurActor.set_content(image);
+                
+                global.stage.insert_child_below(blurActor, this.modal);
+                this.blurBackground = blurActor;
+                
+                Tweener.addTween(blurActor, {
+                    opacity: 255,
+                    time: 0.15,
+                    transition: 'easeOutQuad'
+                });
+                
+                this._cleanupBlurFiles(tempFile, blurredFile);
+                
+            } catch(e) {
+                global.log('App drawer blur error: ' + e);
+                this._cleanupBlurFiles(tempFile, blurredFile);
+            }
+        });
+        
+    } catch(e) {
+        global.log('App drawer blur process error: ' + e);
+    }
+},
+
+    _cleanupBlurFiles: function(tempFile, blurredFile) {
+        imports.mainloop.timeout_add(1000, () => {
+            try {
+                let file1 = Gio.file_new_for_path(tempFile);
+                let file2 = Gio.file_new_for_path(blurredFile);
+                file1.delete(null);
+                file2.delete(null);
+            } catch(e) {}
+            return false;
+        });
+    },
+
+    _destroyBlurBackground: function() {
+        if (this.blurBackground) {
+            try {
+                global.stage.remove_actor(this.blurBackground);
+                this.blurBackground.destroy();
+                this.blurBackground = null;
+            } catch(e) {}
+        }
+    },
+
     _completeDestroy: function() {
         this._hideTooltip();
         if (this.tooltipTimeout) {
             imports.mainloop.source_remove(this.tooltipTimeout);
             this.tooltipTimeout = null;
         }
+        this._destroyBlurBackground();
         if (this.modal) {
             Main.popModal(this.modal);
             global.stage.remove_actor(this.modal);
