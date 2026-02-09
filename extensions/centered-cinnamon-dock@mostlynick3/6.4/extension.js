@@ -1402,7 +1402,10 @@ function initPanel(panel) {
         allocationId: null,
         previousPadding: 20,
         isEnabled: true,
-        marginAnimationTimer: null
+        marginAnimationTimer: null,
+        styleApplyIdle: null,
+        applyStyleIdle: null,
+        updateIndicatorIdle: null
     };
     
     let state = panelStates[panel.panelId];
@@ -1444,13 +1447,18 @@ function initPanel(panel) {
         let state = panelStates[panel.panelId];
         if (!state || !state.isEnabled || state.isAnimating) return;
         
-        Mainloop.timeout_add(10, function() {
+        if (state.styleApplyIdle) {
+            Mainloop.source_remove(state.styleApplyIdle);
+        }
+        
+        state.styleApplyIdle = Mainloop.idle_add(function() {
             if (!panel || !panel.actor) return false;
             
             let state = panelStates[panel.panelId];
             if (state && state.isEnabled) {
                 applyStyle(panel);
             }
+            state.styleApplyIdle = null;
             return false;
         });
     });
@@ -1558,6 +1566,21 @@ function cleanupAllPanels() {
             if (state.marginAnimationTimer) {
                 Mainloop.source_remove(state.marginAnimationTimer);
                 state.marginAnimationTimer = null;
+            }
+            
+            if (state.styleApplyIdle) {
+                Mainloop.source_remove(state.styleApplyIdle);
+                state.styleApplyIdle = null;
+            }
+            
+            if (state.applyStyleIdle) {
+                Mainloop.source_remove(state.applyStyleIdle);
+                state.applyStyleIdle = null;
+            }
+
+            if (state.updateIndicatorIdle) {
+                Mainloop.source_remove(state.updateIndicatorIdle);
+                state.updateIndicatorIdle = null;
             }
             
             if (state.styleSignal) {
@@ -1865,7 +1888,7 @@ function isMouseInTriggerZone(panel, x, y) {
     let state = panelStates[panel.panelId];
     if (!state) return false;
     
-    let monitor = getMonitorGeometry(panel);
+    let monitor = getScaledMonitorGeometry(panel);
     let hoverPixels = getPanelSetting(panel, "hoverPixels");
     let minPanelWidth = getPanelSetting(panel, "minWidth") || 0;
     
@@ -1953,6 +1976,25 @@ function toggleAutoHide() {
 
 function getMonitorGeometry(panel) {
     let panelMonitor = Main.layoutManager.findMonitorForActor(panel.actor);
+    if (panelMonitor) {
+        return {
+            x: panelMonitor.x,
+            y: panelMonitor.y,
+            width: panelMonitor.width,
+            height: panelMonitor.height
+        };
+    }
+    return {
+        x: 0,
+        y: 0,
+        width: global.screen_width,
+        height: global.screen_height
+    };
+}
+
+function getScaledMonitorGeometry(panel) {
+    let panelMonitor = Main.layoutManager.findMonitorForActor(panel.actor);
+    
     if (panelMonitor) {
         return {
             x: panelMonitor.x,
@@ -2153,7 +2195,7 @@ function createIndicator(panel) {
         destroyIndicator(panel);
     }
     
-    let monitor = getMonitorGeometry(panel);
+    let monitor = getScaledMonitorGeometry(panel);
     let hoverPixels = getPanelSetting(panel, "hoverPixels");
     let transparency = getPanelSetting(panel, "transparency") / 100.0;
     let indicatorColor = getPanelSetting(panel, "indicatorColor");
@@ -2234,95 +2276,107 @@ function updateIndicator(panel) {
     let state = panelStates[panel.panelId];
     if (!state || !state.indicator) return;
     
-    try {
-        let monitor = getMonitorGeometry(panel);
-        let hoverPixels = getPanelSetting(panel, "hoverPixels");
-        let transparency = getPanelSetting(panel, "transparency") / 100.0;
-        let indicatorColor = getPanelSetting(panel, "indicatorColor");
+    if (state.updateIndicatorIdle) {
+        Mainloop.source_remove(state.updateIndicatorIdle);
+    }
+    
+    state.updateIndicatorIdle = Mainloop.idle_add(function() {
+        let state = panelStates[panel.panelId];
+        if (!state || !state.indicator) return false;
         
-        let indicatorWidth, indicatorHeight, indicatorX, indicatorY;
-        
-        if (state.location === "bottom" || state.location === "top") {
-            let minPanelWidth = getPanelSetting(panel, "minWidth") || 0;
-            let maxAllowedWidth = monitor.width - 40;
-            let effectiveWidth = Math.max(state.lastWidth || 200, minPanelWidth);
-            effectiveWidth = Math.min(effectiveWidth, maxAllowedWidth);
-            indicatorWidth = effectiveWidth;
-            indicatorHeight = hoverPixels;
-            indicatorX = monitor.x + (monitor.width - indicatorWidth) / 2;
+        try {
+            let monitor = getScaledMonitorGeometry(panel);
+            let hoverPixels = getPanelSetting(panel, "hoverPixels");
+            let transparency = getPanelSetting(panel, "transparency") / 100.0;
+            let indicatorColor = getPanelSetting(panel, "indicatorColor");
             
-            if (state.location === "bottom") {
-                indicatorY = monitor.y + monitor.height - hoverPixels;
-            } else {
-                indicatorY = monitor.y;
+            let indicatorWidth, indicatorHeight, indicatorX, indicatorY;
+            
+            if (state.location === "bottom" || state.location === "top") {
+                let minPanelWidth = getPanelSetting(panel, "minWidth") || 0;
+                let maxAllowedWidth = monitor.width - 40;
+                let effectiveWidth = Math.max(state.lastWidth || 200, minPanelWidth);
+                effectiveWidth = Math.min(effectiveWidth, maxAllowedWidth);
+                indicatorWidth = effectiveWidth;
+                indicatorHeight = hoverPixels;
+                indicatorX = monitor.x + (monitor.width - indicatorWidth) / 2;
+                
+                if (state.location === "bottom") {
+                    indicatorY = monitor.y + monitor.height - hoverPixels;
+                } else {
+                    indicatorY = monitor.y;
+                }
+                
+                state.indicator.set_position(indicatorX, indicatorY);
+                
+                Tweener.removeTweens(state.indicator);
+                
+                Tweener.addTween(state.indicator, {
+                    width: indicatorWidth,
+                    time: 0.2,
+                    transition: 'easeOutQuad',
+                    onUpdate: function() {
+                        if (!state || !state.indicator) return;
+                        try {
+                            let currentWidth = state.indicator.width;
+                            let newX = monitor.x + (monitor.width - currentWidth) / 2;
+                            state.indicator.x = newX;
+                        } catch(e) {}
+                    }
+                });
+            } else if (state.location === "left" || state.location === "right") {
+                indicatorWidth = hoverPixels;
+                
+                let { usableHeight, usableTopOffset } = getUsableHeight(panel);
+                
+                let minPanelHeight = getPanelSetting(panel, "minWidth") || 0;
+                let actualHeight = state.lastHeight || 200;
+                let effectiveHeight = Math.max(actualHeight, minPanelHeight);
+                let maxAllowedHeight = usableHeight - 40;
+                effectiveHeight = Math.min(effectiveHeight, maxAllowedHeight);
+                effectiveHeight = Math.max(effectiveHeight, 50);
+                indicatorHeight = effectiveHeight;
+                indicatorY = monitor.y + usableTopOffset + (usableHeight - indicatorHeight) / 2;
+                
+                if (state.location === "left") {
+                    indicatorX = state.originalX;
+                } else {
+                    indicatorX = state.originalX + panel.actor.width - hoverPixels;
+                }
+                
+                state.indicator.set_position(indicatorX, indicatorY);
+                
+                Tweener.removeTweens(state.indicator);
+                
+                Tweener.addTween(state.indicator, {
+                    height: indicatorHeight,
+                    time: 0.2,
+                    transition: 'easeOutQuad',
+                    onUpdate: function() {
+                        if (!state || !state.indicator) return;
+                        try {
+                            let currentHeight = state.indicator.height;
+                            let newY = monitor.y + usableTopOffset + (usableHeight - currentHeight) / 2;
+                            state.indicator.y = newY;
+                        } catch(e) {}
+                    }
+                });
             }
             
-            state.indicator.set_position(indicatorX, indicatorY);
+            let colorWithTransparency = indicatorColor.replace(/[\d.]+\)$/, transparency + ')');
             
-            Tweener.removeTweens(state.indicator);
+            state.indicator.set_style(
+                'background-color: ' + colorWithTransparency + ';' +
+                'border-radius: 12px;'
+            );
             
-            Tweener.addTween(state.indicator, {
-                width: indicatorWidth,
-                time: 0.2,
-                transition: 'easeOutQuad',
-                onUpdate: function() {
-                    if (!state || !state.indicator) return;
-                    try {
-                        let currentWidth = state.indicator.width;
-                        let newX = monitor.x + (monitor.width - currentWidth) / 2;
-                        state.indicator.x = newX;
-                    } catch(e) {}
-                }
-            });
-        } else if (state.location === "left" || state.location === "right") {
-            indicatorWidth = hoverPixels;
-            
-            let { usableHeight, usableTopOffset } = getUsableHeight(panel);
-            
-            let minPanelHeight = getPanelSetting(panel, "minWidth") || 0;
-            let actualHeight = state.lastHeight || 200;
-            let effectiveHeight = Math.max(actualHeight, minPanelHeight);
-            let maxAllowedHeight = usableHeight - 40;
-            effectiveHeight = Math.min(effectiveHeight, maxAllowedHeight);
-            effectiveHeight = Math.max(effectiveHeight, 50);
-            indicatorHeight = effectiveHeight;
-            indicatorY = monitor.y + usableTopOffset + (usableHeight - indicatorHeight) / 2;
-            
-            if (state.location === "left") {
-                indicatorX = state.originalX;
-            } else {
-                indicatorX = state.originalX + panel.actor.width - hoverPixels;
-            }
-            
-            state.indicator.set_position(indicatorX, indicatorY);
-            
-            Tweener.removeTweens(state.indicator);
-            
-            Tweener.addTween(state.indicator, {
-                height: indicatorHeight,
-                time: 0.2,
-                transition: 'easeOutQuad',
-                onUpdate: function() {
-                    if (!state || !state.indicator) return;
-                    try {
-                        let currentHeight = state.indicator.height;
-                        let newY = monitor.y + usableTopOffset + (usableHeight - currentHeight) / 2;
-                        state.indicator.y = newY;
-                    } catch(e) {}
-                }
-            });
-        }
+            state.indicatorOriginalX = indicatorX;
+            state.indicatorOriginalY = indicatorY;
+        } catch(e) {}
         
-        let colorWithTransparency = indicatorColor.replace(/[\d.]+\)$/, transparency + ')');
-        
-        state.indicator.set_style(
-            'background-color: ' + colorWithTransparency + ';' +
-            'border-radius: 12px;'
-        );
-        
-        state.indicatorOriginalX = indicatorX;
-        state.indicatorOriginalY = indicatorY;
-    } catch(e) {}
+        state.updateIndicatorIdle = null;
+        return false;
+    });
 }
 
 function destroyIndicator(panel) {
@@ -2373,7 +2427,7 @@ function showPanel(panel) {
     let startOpacity = panel.actor.opacity;
     
     if (state.indicator) {
-        let monitor = getMonitorGeometry(panel);
+        let monitor = getScaledMonitorGeometry(panel);
         let heightOffset = getPanelSetting(panel, "heightOffset");
         let panelCenterPos;
         
@@ -2384,7 +2438,7 @@ function showPanel(panel) {
             let indicatorStartY = state.indicator.y;
             let indicatorStartOpacity = state.indicator.opacity;
             
-            state.animationTimer = Mainloop.timeout_add(16, function() {
+            state.animationTimer = Mainloop.idle_add(function() {
                 let state = panelStates[panel.panelId];
                 if (!state || !state.isEnabled) return false;
                 if (!panel || !panel.actor) return false;
@@ -2426,7 +2480,7 @@ function showPanel(panel) {
             let indicatorStartX = state.indicator.x;
             let indicatorStartOpacity = state.indicator.opacity;
             
-            state.animationTimer = Mainloop.timeout_add(16, function() {
+            state.animationTimer = Mainloop.idle_add(function() {
                 let state = panelStates[panel.panelId];
                 if (!state || !state.isEnabled) return false;
                 if (!panel || !panel.actor) return false;
@@ -2463,7 +2517,7 @@ function showPanel(panel) {
             });
         }
     } else {
-        state.animationTimer = Mainloop.timeout_add(16, function() {
+        state.animationTimer = Mainloop.idle_add(function() {
             let state = panelStates[panel.panelId];
             if (!state || !state.isEnabled) return false;
             if (!panel || !panel.actor) return false;
@@ -2529,6 +2583,8 @@ function hidePanel(panel) {
     state.isShowing = false;
     state.lastCheckState = false;
     
+    let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
+    
     try {
         if (!panel._leftBox || !panel._centerBox || !panel._rightBox) return;
         
@@ -2536,14 +2592,14 @@ function hidePanel(panel) {
             let [minWidth, leftWidth] = panel._leftBox.get_preferred_width(-1);
             let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
             let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
-            let contentWidth = leftWidth + centerWidth + rightWidth;
+            let contentWidth = (leftWidth + centerWidth + rightWidth) / scaleFactor;
             let panelPadding = 20;
             state.lastWidth = Math.max(contentWidth + (panelPadding * 2), 50);
         } else if (state.location === "left" || state.location === "right") {
             let [minHeight, leftHeight] = panel._leftBox.get_preferred_height(-1);
             let [minHeight2, centerHeight] = panel._centerBox.get_preferred_height(-1);
             let [minHeight3, rightHeight] = panel._rightBox.get_preferred_height(-1);
-            let contentHeight = Math.max(leftHeight, centerHeight, rightHeight);
+            let contentHeight = Math.max(leftHeight, centerHeight, rightHeight) / scaleFactor;
             let panelPadding = 20;
             state.lastHeight = Math.max(contentHeight + (panelPadding * 2), 40);
         }
@@ -2557,7 +2613,7 @@ function hidePanel(panel) {
     let startOpacity = panel.actor.opacity;
     
     if (getPanelSetting(panel, "showIndicator")) {
-        let monitor = getMonitorGeometry(panel);
+        let monitor = getScaledMonitorGeometry(panel);
         let heightOffset = getPanelSetting(panel, "heightOffset");
         let panelCenterPos;
         
@@ -2580,7 +2636,7 @@ function hidePanel(panel) {
             let indicatorStartY = state.indicator ? state.indicator.y : panelCenterPos;
             let indicatorStartOpacity = state.indicator ? state.indicator.opacity : 0;
             
-            state.animationTimer = Mainloop.timeout_add(16, function() {
+            state.animationTimer = Mainloop.idle_add(function() {
                 let state = panelStates[panel.panelId];
                 if (!state || !state.isEnabled) return false;
                 if (!panel || !panel.actor) return false;
@@ -2649,7 +2705,7 @@ function hidePanel(panel) {
             let indicatorStartX = state.indicator ? state.indicator.x : panelCenterPos;
             let indicatorStartOpacity = state.indicator ? state.indicator.opacity : 0;
             
-            state.animationTimer = Mainloop.timeout_add(16, function() {
+            state.animationTimer = Mainloop.idle_add(function() {
                 let state = panelStates[panel.panelId];
                 if (!state || !state.isEnabled) return false;
                 if (!panel || !panel.actor) return false;
@@ -2701,7 +2757,7 @@ function hidePanel(panel) {
             });
         }
     } else {
-        state.animationTimer = Mainloop.timeout_add(16, function() {
+        state.animationTimer = Mainloop.idle_add(function() {
             let state = panelStates[panel.panelId];
             if (!state || !state.isEnabled) return false;
             if (!panel || !panel.actor) return false;
@@ -2885,6 +2941,7 @@ function checkAndApplyStyle(panel, forceApply) {
     
     let panelPadding = 20;
     let newWidth, newHeight;
+    let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
     
     try {
         if (state.location === "bottom" || state.location === "top") {
@@ -2892,7 +2949,7 @@ function checkAndApplyStyle(panel, forceApply) {
             let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
             let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
             
-            let contentWidth = leftWidth + centerWidth + rightWidth;
+            let contentWidth = (leftWidth + centerWidth + rightWidth) / scaleFactor;
             let minPanelWidth = getPanelSetting(panel, "minWidth") || 0;
             newWidth = Math.max(contentWidth + (panelPadding * 2), minPanelWidth, 50);
             newHeight = state.lastHeight;
@@ -2901,13 +2958,13 @@ function checkAndApplyStyle(panel, forceApply) {
             let [minHeight2, centerHeight] = panel._centerBox.get_preferred_height(-1);
             let [minHeight3, rightHeight] = panel._rightBox.get_preferred_height(-1);
             
-            let contentHeight = leftHeight + centerHeight + rightHeight;
+            let contentHeight = (leftHeight + centerHeight + rightHeight) / scaleFactor;
             
             let [minWidth, leftWidth] = panel._leftBox.get_preferred_width(-1);
             let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
             let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
             
-            let contentWidth = Math.max(leftWidth, centerWidth, rightWidth);
+            let contentWidth = Math.max(leftWidth, centerWidth, rightWidth) / scaleFactor;
             
             newHeight = Math.max(contentHeight + (panelPadding * 2), 40);
             newWidth = Math.max(contentWidth + (panelPadding * 2), 40);
@@ -2919,11 +2976,25 @@ function checkAndApplyStyle(panel, forceApply) {
     if ((newWidth !== state.lastWidth || newHeight !== state.lastHeight || forceApply) && !state.isAnimating) {
         state.lastWidth = newWidth;
         state.lastHeight = newHeight;
-        applyStyle(panel, forceApply);
         
-        if (state.indicator && getPanelSetting(panel, "showIndicator")) {
-            updateIndicator(panel);
+        if (state.applyStyleIdle) {
+            Mainloop.source_remove(state.applyStyleIdle);
         }
+        
+        state.applyStyleIdle = Mainloop.idle_add(function() {
+            if (!panel || !panel.actor) return false;
+            
+            let state = panelStates[panel.panelId];
+            if (state && state.isEnabled) {
+                applyStyle(panel, forceApply);
+                
+                if (state.indicator && getPanelSetting(panel, "showIndicator")) {
+                    updateIndicator(panel);
+                }
+            }
+            state.applyStyleIdle = null;
+            return false;
+        });
     }
 }
 
@@ -2936,11 +3007,12 @@ function applyStyle(panel, forceApply) {
     
     let transparency = getPanelSetting(panel, "transparency") / 100.0;
     let heightOffset = getPanelSetting(panel, "heightOffset");
-    let monitor = getMonitorGeometry(panel);
+    let monitor = getScaledMonitorGeometry(panel);
     
     let savedOpacity = state.isHidden ? 0 : panel.actor.opacity;
     
     let panelPadding = 20;
+    let scaleFactor = St.ThemeContext.get_for_stage(global.stage).scale_factor;
     
     try {
         if (state.location === "bottom" || state.location === "top") {
@@ -2948,18 +3020,12 @@ function applyStyle(panel, forceApply) {
             
             let adjustedOffset = state.location === "top" ? -heightOffset : heightOffset;
             
-            let [minWidth, leftWidth] = panel._leftBox.get_preferred_width(-1);
-            let [minWidth2, centerWidth] = panel._centerBox.get_preferred_width(-1);
-            let [minWidth3, rightWidth] = panel._rightBox.get_preferred_width(-1);
-            let contentWidth = leftWidth + centerWidth + rightWidth;
-            
             let minPanelWidth = getPanelSetting(panel, "minWidth") || 0;
-            let actualContentWidth = contentWidth + (panelPadding * 2);
-            
             let maxAllowedWidth = monitor.width - 40;
-            let desiredWidth = Math.max(actualContentWidth, minPanelWidth);
+            let desiredWidth = Math.max(state.lastWidth, minPanelWidth) * scaleFactor;
             desiredWidth = Math.min(desiredWidth, maxAllowedWidth);
             
+            let actualContentWidth = state.lastWidth * scaleFactor;
             let extraPadding = 0;
             if (minPanelWidth > actualContentWidth && minPanelWidth <= maxAllowedWidth) {
                 extraPadding = Math.floor((minPanelWidth - actualContentWidth) / 2);
@@ -2984,7 +3050,7 @@ function applyStyle(panel, forceApply) {
                     Mainloop.source_remove(state.marginAnimationTimer);
                 }
                 
-                state.marginAnimationTimer = Mainloop.timeout_add(16, function() {
+                state.marginAnimationTimer = Mainloop.idle_add(function() {
                     let state = panelStates[panel.panelId];
                     if (!state || !state.isEnabled) return false;
                     if (!panel || !panel.actor) return false;
@@ -3058,7 +3124,7 @@ function applyStyle(panel, forceApply) {
             let { usableHeight, usableTopOffset } = getUsableHeight(panel);
             
             let minPanelHeight = getPanelSetting(panel, "minWidth") || 0;
-            let actualHeight = state.lastHeight || 200;
+            let actualHeight = (state.lastHeight || 200) * scaleFactor;
             let desiredHeight = Math.max(actualHeight, minPanelHeight);
             
             let maxAllowedHeight = usableHeight - 40;
@@ -3080,7 +3146,7 @@ function applyStyle(panel, forceApply) {
                     Mainloop.source_remove(state.marginAnimationTimer);
                 }
                 
-                state.marginAnimationTimer = Mainloop.timeout_add(16, function() {
+                state.marginAnimationTimer = Mainloop.idle_add(function() {
                     let state = panelStates[panel.panelId];
                     if (!state || !state.isEnabled) return false;
                     if (!panel || !panel.actor) return false;
