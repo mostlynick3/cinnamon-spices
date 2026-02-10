@@ -39,11 +39,12 @@ class FirstRunDialog {
     constructor() {
         this.dialog = new ModalDialog.ModalDialog();
         this.panelCheckboxes = {};
+        this.signalConnections = [];
         
         this.dialog.connect('opened', () => {
             if (this.dialog._backgroundBin) {
                 this.dialog._backgroundBin.reactive = true;
-                this.dialog._backgroundBin.connect('button-press-event', (actor, event) => {
+                let signalId = this.dialog._backgroundBin.connect('button-press-event', (actor, event) => {
                     let [x, y] = event.get_coords();
                     let contentActor = this.dialog.contentLayout;
                     if (contentActor && !contentActor.contains(global.stage.get_actor_at_pos(Clutter.PickMode.ALL, x, y))) {
@@ -52,12 +53,13 @@ class FirstRunDialog {
                     }
                     return Clutter.EVENT_PROPAGATE;
                 });
+                this.signalConnections.push({ actor: this.dialog._backgroundBin, id: signalId });
             }
         });
         
         this._build();
     }
-    
+
     _build() {
         let contentBox = new St.BoxLayout({
             vertical: true,
@@ -101,9 +103,10 @@ class FirstRunDialog {
                 toggle_mode: true,
                 checked: isEnabled
             });
-            checkbox.connect('clicked', () => {
+            let checkboxSignalId = checkbox.connect('clicked', () => {
                 checkbox.set_style('width: 50px; height: 30px; background-color: ' + (checkbox.checked ? '#4a90d9' : '#666666') + '; border-radius: 15px;');
             });
+            this.signalConnections.push({ actor: checkbox, id: checkboxSignalId });
             
             box.add(label, { x_fill: true, expand: true });
             box.add(checkbox, { x_fill: false, expand: false });
@@ -136,6 +139,16 @@ class FirstRunDialog {
         ]);
     }
 
+    _cleanup() {
+        this.signalConnections.forEach(conn => {
+            try {
+                conn.actor.disconnect(conn.id);
+            } catch(e) {}
+        });
+        this.signalConnections = [];
+        this.panelCheckboxes = {};
+    }
+
     _apply() {
         for (let panelId in this.panelCheckboxes) {
             if (this.panelCheckboxes[panelId].checked) {
@@ -151,6 +164,7 @@ class FirstRunDialog {
             globalSettings.setValue("panel-settings", allSettings);
         } catch(e) {}
         
+        this._cleanup();
         this.dialog.close();
         Mainloop.timeout_add(100, () => { 
             initializePanels(); 
@@ -158,7 +172,7 @@ class FirstRunDialog {
             return false; 
         });
     }
-    
+
     _close() {
         try {
             let allSettings = globalSettings.getValue("panel-settings");
@@ -166,9 +180,10 @@ class FirstRunDialog {
             globalSettings.setValue("panel-settings", allSettings);
         } catch(e) {}
         
+        this._cleanup();
         this.dialog.close();
     }
-    
+
     open() {
         this.dialog.open();
     }
@@ -184,6 +199,7 @@ class PanelSettingsDialog {
         this.panelId = getPanelIdentifier(panel);
         this.location = getPanelLocation(panel);
         this.settings = getPanelSettings(this.panelId);
+        this.signalConnections = [];
         
         this._createDialog();
     }
@@ -392,7 +408,7 @@ class PanelSettingsDialog {
         
         let self = this;
         
-        this.hideOnFullscreenSwitch.connect('clicked', function() {
+        let hideFullscreenSignalId = this.hideOnFullscreenSwitch.connect('clicked', function() {
             if (self.hideOnFullscreenSwitch.checked) {
                 self.autoHideSwitch.checked = false;
                 self.autoHideSwitch.set_style('width: 50px; height: 30px; background-color: #666666; border-radius: 15px;');
@@ -401,8 +417,9 @@ class PanelSettingsDialog {
                 self.showOnNoFocusSwitch.set_style('width: 50px; height: 30px; background-color: #666666; border-radius: 15px;');
             }
         });
+        this.signalConnections.push({ actor: this.hideOnFullscreenSwitch, id: hideFullscreenSignalId });
         
-        this.showOnNoFocusSwitch.connect('clicked', function() {
+        let showNoFocusSignalId = this.showOnNoFocusSwitch.connect('clicked', function() {
             if (self.showOnNoFocusSwitch.checked) {
                 self.autoHideSwitch.checked = true;
                 self.autoHideSwitch.set_style('width: 50px; height: 30px; background-color: #4a90d9; border-radius: 15px;');
@@ -411,8 +428,9 @@ class PanelSettingsDialog {
                 self.hideOnFullscreenSwitch.set_style('width: 50px; height: 30px; background-color: #666666; border-radius: 15px;');
             }
         });
+        this.signalConnections.push({ actor: this.showOnNoFocusSwitch, id: showNoFocusSignalId });
         
-        this.autoHideSwitch.connect('clicked', function() {
+        let autoHideSignalId = this.autoHideSwitch.connect('clicked', function() {
             if (self.autoHideSwitch.checked) {
                 self.hideOnFullscreenSwitch.checked = false;
                 self.hideOnFullscreenSwitch.set_style('width: 50px; height: 30px; background-color: #666666; border-radius: 15px;');
@@ -421,6 +439,7 @@ class PanelSettingsDialog {
                 self.showOnNoFocusSwitch.set_style('width: 50px; height: 30px; background-color: #666666; border-radius: 15px;');
             }
         });
+        this.signalConnections.push({ actor: this.autoHideSwitch, id: autoHideSignalId });
     }
 
     _addHeader(text) {
@@ -470,9 +489,10 @@ class PanelSettingsDialog {
             checked: initialValue
         });
 
-        switchWidget.connect('clicked', function() {
+        let switchSignalId = switchWidget.connect('clicked', function() {
             switchWidget.set_style('width: 50px; height: 30px; background-color: ' + (switchWidget.checked ? '#4a90d9' : '#666666') + '; border-radius: 15px;');
         });
+        this.signalConnections.push({ actor: switchWidget, id: switchSignalId });
 
         let switchBin = new St.Bin({
             child: switchWidget,
@@ -490,7 +510,7 @@ class PanelSettingsDialog {
         });
         return switchWidget;
     }
-    
+
     _addSlider(labelText, initialValue, min, max, step) {
         let box = new St.BoxLayout({
             style: 'padding: 8px 20px 8px 5px;',
@@ -538,29 +558,33 @@ class PanelSettingsDialog {
         slider._valueLabel = valueLabel;
         slider._dragging = false;
         
-        slider.connect('repaint', () => {
+        let repaintSignalId = slider.connect('repaint', () => {
             this._drawSlider(slider);
         });
+        this.signalConnections.push({ actor: slider, id: repaintSignalId });
         
-        slider.connect('button-press-event', (actor, event) => {
+        let buttonPressSignalId = slider.connect('button-press-event', (actor, event) => {
             slider._dragging = true;
             this._updateSliderValue(slider, event);
             return Clutter.EVENT_STOP;
         });
+        this.signalConnections.push({ actor: slider, id: buttonPressSignalId });
         
-        slider.connect('button-release-event', () => {
+        let buttonReleaseSignalId = slider.connect('button-release-event', () => {
             slider._dragging = false;
             return Clutter.EVENT_STOP;
         });
+        this.signalConnections.push({ actor: slider, id: buttonReleaseSignalId });
         
-        slider.connect('motion-event', (actor, event) => {
+        let motionSignalId = slider.connect('motion-event', (actor, event) => {
             if (slider._dragging) {
                 this._updateSliderValue(slider, event);
             }
             return Clutter.EVENT_PROPAGATE;
         });
+        this.signalConnections.push({ actor: slider, id: motionSignalId });
         
-        slider.connect('scroll-event', (actor, event) => {
+        let scrollSignalId = slider.connect('scroll-event', (actor, event) => {
             let direction = event.get_scroll_direction();
             if (direction == Clutter.ScrollDirection.UP) {
                 slider._value = Math.min(slider._max, slider._value + slider._step);
@@ -571,6 +595,7 @@ class PanelSettingsDialog {
             slider.queue_repaint();
             return Clutter.EVENT_STOP;
         });
+        this.signalConnections.push({ actor: slider, id: scrollSignalId });
         
         sliderBox.add(slider, { expand: true });
         
@@ -584,7 +609,8 @@ class PanelSettingsDialog {
         
         return slider;
     }
-    
+
+ 
     _drawSlider(slider) {
         let cr = slider.get_context();
         let [width, height] = slider.get_surface_size();
@@ -683,13 +709,14 @@ class PanelSettingsDialog {
             }
         };
         
-        hexEntry.clutter_text.connect('text-changed', function() {
+        let hexEntrySignalId = hexEntry.clutter_text.connect('text-changed', function() {
             let hexText = hexEntry.get_text().trim();
             if (/^#[0-9A-Fa-f]{6}$/.test(hexText)) {
                 colorPicker.selectedColor = colorPicker._hexToRgba(hexText);
                 previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + hexText + ';');
             }
         });
+        this.signalConnections.push({ actor: hexEntry.clutter_text, id: hexEntrySignalId });
         
         hexBox.add(hexLabel, { expand: false });
         hexBox.add(hexEntry, { expand: true });
@@ -717,11 +744,12 @@ class PanelSettingsDialog {
                     style: 'width: 80px; height: 40px; background-color: ' + color + '; border-radius: 4px; border: 2px solid #666;'
                 });
                 
-                colorBtn.connect('clicked', function() {
+                let colorBtnSignalId = colorBtn.connect('clicked', function() {
                     colorPicker.selectedColor = colorPicker._hexToRgba(color);
                     previewBox.set_style('width: 40px; height: 40px; border: 2px solid #666; border-radius: 4px; background-color: ' + color + ';');
                     hexEntry.set_text(color);
                 });
+                this.signalConnections.push({ actor: colorBtn, id: colorBtnSignalId });
                 
                 rowBox.add(colorBtn, { expand: true });
             });
@@ -770,7 +798,22 @@ class PanelSettingsDialog {
         };
     }
     
+    _cleanup() {
+        this.signalConnections.forEach(conn => {
+            try {
+                conn.actor.disconnect(conn.id);
+            } catch(e) {}
+        });
+        this.signalConnections = [];
+        
+        if (this.contentBox) {
+            this.contentBox.destroy_all_children();
+            this.contentBox = null;
+        }
+    }
+
     _onCancel() {
+        this._cleanup();
         this.dialog.close();
     }
     
@@ -785,9 +828,10 @@ class PanelSettingsDialog {
             return false;
         });
     }
-    
+
     _onOK() {
         this._onApply();
+        this._cleanup();
         this.dialog.close();
     }
     
@@ -1241,7 +1285,16 @@ function initializePanels() {
             
             windowStateChangedSignals.push({ window: win, signalId: stateChangedId });
             
-            win.connect('unmanaged', function() {
+            let unmanagedId = win.connect('unmanaged', function() {
+                windowStateChangedSignals.forEach(item => {
+                    if (item.window === win) {
+                        try {
+                            win.disconnect(item.signalId);
+                        } catch(e) {}
+                    }
+                });
+                windowStateChangedSignals = windowStateChangedSignals.filter(item => item.window !== win);
+                
                 if (isInEditMode) return;
                 Main.panelManager.panels.forEach(panel => {
                     if (shouldApplyToPanel(panel) && panel && panel.actor) {
